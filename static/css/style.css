@@ -539,3 +539,49 @@ input,select{font-family:inherit}
   .landing-sub{font-size:13px}
   .landing-btn{width:100%;justify-content:center}
 }
+
+/* ============================================================
+   Enhanced MITM affordance on device cards
+   ============================================================ */
+.device-mitm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(239,68,68,.16), rgba(239,68,68,.08));
+  border: 1px solid rgba(239,68,68,.35);
+  color: #fca5a5;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .08s, box-shadow .2s;
+}
+.device-mitm-btn:hover {
+  background: linear-gradient(135deg, rgba(239,68,68,.26), rgba(239,68,68,.14));
+  border-color: rgba(239,68,68,.55);
+  box-shadow: 0 6px 20px rgba(239,68,68,.25);
+}
+.device-mitm-btn:active { transform: translateY(1px); }
+.device-mitm-btn svg { color: #fca5a5; }
+
+/* Larger confirm actions */
+.mitm-confirm-actions {
+  justify-content: space-between;
+  align-items: center;
+}
+.btn.big {
+  padding: 13px 22px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+.btn.big svg { color: currentColor; }
+
+/* Slightly wider target preview inside confirm modal */
+.mitm-target-preview { margin-top: 4px; }

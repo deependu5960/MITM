@@ -1,4 +1,9 @@
-"""Packet capture worker — sniffs, normalizes, and queues records."""
+"""Packet capture worker — sniffs, normalizes, and queues records.
+
+Uses scapy's AsyncSniffer so we don't lose packets between iterations.
+No BPF filter by default (we capture everything on the lab interface and
+let normalize() classify). Metadata only — no payload inspection.
+"""
 from __future__ import annotations
 import logging
 import queue
@@ -12,7 +17,6 @@ log = logging.getLogger("mitm.capture")
 
 
 def _proto_name(pkt) -> str:
-    """Best-effort protocol label — metadata only, no payload inspection."""
     try:
         from scapy.layers.l2 import ARP  # type: ignore
         from scapy.layers.inet import IP, TCP, UDP, ICMP  # type: ignore
@@ -35,7 +39,7 @@ def _proto_name(pkt) -> str:
     return "OTHER"
 
 
-def _ports(pkt) -> tuple[Optional[int], Optional[int]]:
+def _ports(pkt):
     try:
         from scapy.layers.inet import TCP, UDP  # type: ignore
         if pkt.haslayer(TCP):
@@ -50,25 +54,23 @@ def _ports(pkt) -> tuple[Optional[int], Optional[int]]:
 
 
 def _summary(pkt, proto: str, src_ip, dst_ip, sport, dport) -> str:
-    """
-    Build a short metadata-only summary. We deliberately do NOT include
-    DNS query names or TCP payload text — only flags and endpoints.
-    """
+    """Short, metadata-only summary. No DNS query names, no payloads."""
     try:
         from scapy.layers.inet import TCP  # type: ignore
         if proto == "TCP" and pkt.haslayer(TCP):
-            flags = pkt[TCP].flags
+            flags = int(pkt[TCP].flags)
             label = []
             if flags & 0x02: label.append("SYN")
             if flags & 0x10: label.append("ACK")
             if flags & 0x01: label.append("FIN")
             if flags & 0x04: label.append("RST")
+            if flags & 0x08: label.append("PSH")
             flag_str = " ".join(label) or "TCP"
             return f"{flag_str} {src_ip}:{sport} -> {dst_ip}:{dport}"
         if proto == "DNS":
             return f"DNS {src_ip} -> {dst_ip}"
         if proto == "ARP":
-            return f"ARP {pkt.summary()[:70]}"
+            return f"ARP {pkt.summary()[:80]}"
         if proto in ("UDP", "ICMP", "IP"):
             port = f":{sport}->{dport}" if sport and dport else ""
             return f"{proto} {src_ip}{port} -> {dst_ip}"
@@ -78,7 +80,6 @@ def _summary(pkt, proto: str, src_ip, dst_ip, sport, dport) -> str:
 
 
 def normalize(pkt) -> PacketRecord:
-    """Turn a scapy packet into a PacketRecord — metadata only."""
     proto = _proto_name(pkt)
     sport, dport = _ports(pkt)
 
@@ -103,6 +104,11 @@ def normalize(pkt) -> PacketRecord:
     except Exception:
         pass
 
+    try:
+        pkt_len = len(pkt)
+    except Exception:
+        pkt_len = 0
+
     return PacketRecord(
         ts=time.time(),
         src_mac=src_mac,
@@ -112,69 +118,81 @@ def normalize(pkt) -> PacketRecord:
         protocol=proto,
         src_port=sport,
         dst_port=dport,
-        length=len(pkt),
+        length=pkt_len,
         summary=_summary(pkt, proto, src_ip, dst_ip, sport, dport),
     )
 
 
-class PacketCapturer(threading.Thread):
+class PacketCapturer:
     """
-    Sniffs on `iface` and pushes normalized PacketRecords into `out_queue`.
-    Uses scapy's `sniff` with a stop_filter tied to a threading.Event so
-    it exits promptly when asked to stop.
+    Wraps scapy's AsyncSniffer. Starts a background thread that receives
+    every packet on the given interface and pushes normalized records into
+    the output queue. Stops cleanly when stop() is called.
     """
 
     def __init__(self, iface: str, out_queue: "queue.Queue[PacketRecord]",
                  bpf: Optional[str] = None):
-        super().__init__(daemon=True)
         self.iface = iface
         self.queue = out_queue
         self.bpf = bpf
-        self._stop = threading.Event()
+        self._sniffer = None
         self._count = 0
-
-    def stop(self) -> None:
-        self._stop.set()
+        self._lock = threading.Lock()
+        self._stopped = False
 
     @property
     def count(self) -> int:
-        return self._count
+        with self._lock:
+            return self._count
 
     def _handle(self, pkt) -> None:
-        if self._stop.is_set():
-            return
         try:
             rec = normalize(pkt)
         except Exception as e:
             log.debug("normalize failed: %s", e)
             return
-        self._count += 1
+        with self._lock:
+            self._count += 1
         try:
             self.queue.put_nowait(rec)
         except queue.Full:
-            # Drop oldest by popping one and re-inserting; keeps GUI current
             try:
                 self.queue.get_nowait()
                 self.queue.put_nowait(rec)
             except Exception:
                 pass
 
-    def run(self) -> None:
-        log.info("Packet capture started on iface=%s", self.iface)
+    def start(self) -> None:
         try:
-            from scapy.all import sniff  # type: ignore
+            from scapy.all import AsyncSniffer  # type: ignore
         except Exception as e:
             log.error("scapy unavailable: %s", e)
             return
 
         try:
-            sniff(
-                iface=self.iface,
-                prn=self._handle,
-                store=False,
-                stop_filter=lambda _: self._stop.is_set(),
-                timeout=1,  # poll every 1s so stop works
-            )
+            kwargs = {
+                "iface": self.iface,
+                "prn": self._handle,
+                "store": False,
+            }
+            if self.bpf:
+                kwargs["filter"] = self.bpf
+            self._sniffer = AsyncSniffer(**kwargs)
+            self._sniffer.start()
+            log.info("Packet capture started on iface=%s (bpf=%s)",
+                     self.iface, self.bpf or "none")
         except Exception as e:
-            log.error("sniff error: %s", e)
-        log.info("Packet capture stopped (captured %d packets)", self._count)
+            log.error("sniff start failed: %s", e)
+            self._sniffer = None
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        if self._sniffer:
+            try:
+                self._sniffer.stop()
+            except Exception:
+                pass
+            self._sniffer = None
+        log.info("Packet capture stopped (captured %d packets)", self.count)

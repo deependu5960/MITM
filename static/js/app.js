@@ -267,7 +267,18 @@
     else if (d.is_gateway) { primaryTag = "Router"; primaryClass = "gateway"; }
 
     const vendorChip = d.vendor ? `<span class="vendor-chip">${esc(d.vendor)}</span>` : "";
-    const clickable = !d.is_self && !d.is_gateway && !!d.ip;
+    const eligible = !d.is_self && !d.is_gateway && !!d.ip;
+
+    const actionBlock = eligible
+      ? `<button type="button" class="device-mitm-btn" data-mitm-action="start">
+           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+             <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+           </svg>
+           <span>Start MITM</span>
+         </button>`
+      : `<div class="device-hint ${eligible ? "" : "dim"}">
+           ${d.is_self ? "This is you" : "Gateway"}
+         </div>`;
 
     card.innerHTML = `
       <div class="device-head">
@@ -292,15 +303,21 @@
           <span class="v ${d.mac ? "" : "dim"}">${esc(d.mac || "not available")}</span>
         </div>
       </div>
-      <div class="device-hint ${clickable ? "" : "dim"}">
-        ${clickable ? "Click to start MITM session" : (d.is_self ? "This is you" : "Gateway")}
-      </div>
+      ${actionBlock}
     `;
 
-    if (clickable) {
+    if (eligible) {
+      const btn = card.querySelector("[data-mitm-action]");
+      if (btn) {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          askConfirmAndStartMitm(d);
+        });
+      }
       card.classList.add("clickable");
       card.addEventListener("click", () => askConfirmAndStartMitm(d));
     }
+
     return card;
   }
 
@@ -359,16 +376,12 @@
     if (sub) sub.textContent = `${device.hostname || "Unknown"} · ${device.ip}`;
 
     const t = $("#mitm-confirm-target"); if (t) t.textContent = device.ip || "—";
-    const m = $("#mitm-confirm-mac");  if (m) m.textContent = device.mac || "not available";
+    const m = $("#mitm-confirm-mac"); if (m) m.textContent = device.mac || "not available";
     const i = $("#mitm-confirm-iface"); if (i) i.textContent = (state.iface && state.iface.name) || "—";
 
-    // Attacker MAC: if we scanned ourselves, we know it. Otherwise backend will detect it.
     const selfDev = state.devices.find((d) => d.is_self);
     const a = $("#mitm-confirm-amac");
     if (a) a.textContent = (selfDev && selfDev.mac) || "auto-detected";
-
-    const cb = $("#mitm-confirm-checkbox"); if (cb) cb.checked = false;
-    const go = $("#mitm-confirm-go"); if (go) go.disabled = true;
 
     const cModal = $("#mitm-confirm");
     if (cModal) cModal.classList.remove("hidden");
@@ -442,9 +455,9 @@
     const sv = s.state || "stopped";
     if (dot) {
       dot.className = "dot " + (sv === "running" ? "online"
-                              : sv === "error" ? "error"
-                              : (sv === "starting" || sv === "stopping") ? "scanning"
-                              : "");
+        : sv === "error" ? "error"
+          : (sv === "starting" || sv === "stopping") ? "scanning"
+            : "");
     }
     const st = $("#mitm-state"); if (st) st.textContent = sv;
     const vip = $("#mitm-vip"); if (vip) vip.textContent = s.victim_ip || "—";
@@ -461,7 +474,7 @@
     try {
       mitm.es = new EventSource("/api/mitm/stream");
       mitm.es.addEventListener("packet", (ev) => {
-        try { appendPacket(JSON.parse(ev.data)); } catch (_) {}
+        try { appendPacket(JSON.parse(ev.data)); } catch (_) { }
       });
       mitm.es.onerror = () => { /* browser will auto-reconnect */ };
     } catch (e) {
@@ -471,7 +484,7 @@
 
   function disconnectMitmStream() {
     if (mitm.es) {
-      try { mitm.es.close(); } catch (_) {}
+      try { mitm.es.close(); } catch (_) { }
       mitm.es = null;
     }
   }
@@ -509,7 +522,7 @@
 
     const clearBtn = $("#mitm-clear");
     if (clearBtn) clearBtn.addEventListener("click", async () => {
-      try { await fetch("/api/mitm/clear", { method: "POST" }); } catch (_) {}
+      try { await fetch("/api/mitm/clear", { method: "POST" }); } catch (_) { }
       const tb = $("#packet-tbody"); if (tb) tb.innerHTML = "";
       mitm.count = 0;
       const pc = $("#packet-count"); if (pc) pc.textContent = "0 packets";
@@ -519,7 +532,7 @@
     const pauseBtn = $("#mitm-pause");
     if (pauseBtn) pauseBtn.addEventListener("click", async () => {
       const path = mitm.paused ? "/api/mitm/resume" : "/api/mitm/pause";
-      try { await fetch(path, { method: "POST" }); } catch (_) {}
+      try { await fetch(path, { method: "POST" }); } catch (_) { }
       mitm.paused = !mitm.paused;
       pauseBtn.textContent = mitm.paused ? "Resume" : "Pause";
     });
@@ -539,10 +552,8 @@
         el.addEventListener("click", closeMitmConfirm);
       });
     }
-    const cb = $("#mitm-confirm-checkbox");
     const go = $("#mitm-confirm-go");
-    if (cb && go) {
-      cb.addEventListener("change", () => { go.disabled = !cb.checked; });
+    if (go) {
       go.addEventListener("click", () => {
         const target = mitm.pendingTarget;
         closeMitmConfirm();
@@ -570,7 +581,7 @@
           disconnectMitmStream();
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // ==========================================================================
@@ -582,7 +593,7 @@
       const d = await r.json();
       state.iface = d.interface;
       state.localName = d.local_name;
-    } catch (_) {}
+    } catch (_) { }
   }
 
   async function fetchDevices() {
@@ -618,7 +629,7 @@
   async function startScan(fromLanding) {
     if (state.scanning) return;
     if (fromLanding) showApp();
-    try { await fetch("/api/scan", { method: "POST" }); } catch (_) {}
+    try { await fetch("/api/scan", { method: "POST" }); } catch (_) { }
     state.scanning = true;
     renderProgress();
     renderTopbar();
