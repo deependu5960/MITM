@@ -1,18 +1,18 @@
-"""Multi-source hostname resolution.
+"""Multi-source hostname resolution with per-source debug output.
 
-Sources (in the order the final answer is decided):
-  1. Passive mDNS listener (during scan) — catches phone/IoT broadcasts.
-  2. Active mDNS PTR query                — asks printers/Macs/some phones.
-  3. NetBIOS name query (UDP 137)         — Windows PCs.
-  4. LLMNR query (UDP 5355)               — modern Windows.
-  5. Reverse DNS                          — any device with PTR record.
-  6. Local machine's own name             — for our own IP.
+Order of sources (first hit wins):
+  1. Passive mDNS listener  — catches phone / IoT broadcasts during scan.
+  2. Active mDNS PTR        — asks directly.
+  3. NetBIOS name query     — Windows PCs.
+  4. LLMNR                  — modern Windows.
+  5. Reverse DNS            — any device with PTR record.
+  6. Local OS hostname      — for our own IP.
 
-The passive listener is what makes phones appear. Without it, phones that
-never answer an active query stay invisible. This mirrors what Bettercap
-does in net.probe.
+Never fabricates a name. If nothing answers, returns None and lets the UI
+display "Unknown Device".
 """
 from __future__ import annotations
+import logging
 import re
 import socket
 import struct
@@ -20,11 +20,14 @@ import threading
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
+log = logging.getLogger("hostname")
+
 # ---------------------------------------------------------------------------
-# Shared passive cache — filled by the listener while scanning
+# Passive mDNS cache
 # ---------------------------------------------------------------------------
 _passive_lock = threading.Lock()
 _passive: Dict[str, Dict[str, Set[str]]] = {}
+_passive_stats = {"packets": 0, "records": 0, "bind_error": None, "started": False}
 
 
 def _record_name(ip: str, name: str) -> None:
@@ -37,6 +40,7 @@ def _record_name(ip: str, name: str) -> None:
         return
     with _passive_lock:
         _passive.setdefault(ip, {"names": set(), "services": set()})["names"].add(name)
+        _passive_stats["records"] += 1
 
 
 def _record_service(ip: str, service: str) -> None:
@@ -56,10 +60,17 @@ def get_passive() -> Dict[str, Dict[str, List[str]]]:
 def clear_passive() -> None:
     with _passive_lock:
         _passive.clear()
+        _passive_stats["packets"] = 0
+        _passive_stats["records"] = 0
+
+
+def passive_stats() -> Dict:
+    with _passive_lock:
+        return dict(_passive_stats)
 
 
 # ---------------------------------------------------------------------------
-# DNS name decoder (used by mDNS + LLMNR parsers)
+# DNS name decoding (shared)
 # ---------------------------------------------------------------------------
 def _skip_name(data: bytes, off: int) -> int:
     for _ in range(128):
@@ -99,11 +110,11 @@ def _read_name(data: bytes, off: int) -> Tuple[Optional[str], int]:
             break
         labels.append(data[off:off + n].decode("latin-1", errors="ignore"))
         off += n
-    return ".".join(labels) or None, (orig if jumped else off)
+    return (".".join(labels) or None), (orig if jumped else off)
 
 
 # ---------------------------------------------------------------------------
-# mDNS passive listener — the fix for missing phone names
+# mDNS passive listener
 # ---------------------------------------------------------------------------
 def _parse_mdns(data: bytes, src_ip: str) -> None:
     try:
@@ -111,7 +122,7 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
             return
         flags, qd, an, ns, ar = struct.unpack(">HHHHH", data[2:12])
         if not (flags & 0x8000):
-            return  # not a response
+            return
         off = 12
         for _ in range(qd):
             off = _skip_name(data, off)
@@ -143,8 +154,8 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
         pass
 
 
-def mdns_listen(duration: float = 6.0) -> None:
-    """Listen to mDNS multicast for `duration` seconds, populating the cache."""
+def mdns_listen(duration: float = 8.0) -> None:
+    """Passive mDNS listener — catches device broadcasts."""
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -155,25 +166,36 @@ def mdns_listen(duration: float = 6.0) -> None:
             pass
         try:
             sock.bind(("", 5353))
-        except OSError:
-            return  # port in use — best effort
+        except OSError as e:
+            with _passive_lock:
+                _passive_stats["bind_error"] = f"{e.__class__.__name__}: {e}"
+            log.warning("mDNS bind failed on UDP 5353: %s", e)
+            log.warning("If avahi-daemon is running, stop it: sudo systemctl stop avahi-daemon")
+            return
         mreq = struct.pack("4sl", socket.inet_aton("224.0.0.251"), socket.INADDR_ANY)
         try:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        except OSError:
-            return  # no multicast on this interface
+        except OSError as e:
+            with _passive_lock:
+                _passive_stats["bind_error"] = f"multicast join failed: {e}"
+            log.warning("multicast join failed: %s", e)
+            return
+        with _passive_lock:
+            _passive_stats["started"] = True
         sock.settimeout(0.5)
         end = time.time() + duration
         while time.time() < end:
             try:
                 data, addr = sock.recvfrom(9000)
+                with _passive_lock:
+                    _passive_stats["packets"] += 1
                 _parse_mdns(data, addr[0])
             except socket.timeout:
                 continue
             except Exception:
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("mdns_listen fatal: %s", e)
     finally:
         if sock:
             try:
@@ -192,8 +214,7 @@ def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
         for label in rev.split("."):
             qname += bytes([len(label)]) + label.encode()
         qname += b"\x00"
-        packet = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0)
-        packet += qname + struct.pack(">HH", 12, 1)
+        packet = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0) + qname + struct.pack(">HH", 12, 1)
 
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
@@ -207,9 +228,8 @@ def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
         if an == 0:
             return None
         off = 12
-        for _ in range(1):
-            off = _skip_name(data, off)
-            off += 4
+        off = _skip_name(data, off)
+        off += 4
         for _ in range(an):
             _name, off = _read_name(data, off)
             if off + 10 > len(data):
@@ -226,7 +246,7 @@ def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
     return None
 
 
-def query_mdns(ip: str, timeout: float = 0.8) -> Optional[str]:
+def query_mdns_active(ip: str, timeout: float = 0.8) -> Optional[str]:
     n = _ptr_query(ip, "224.0.0.251", 5353, timeout)
     if n:
         return n.replace(".local", "").replace(".local.", "")
@@ -241,8 +261,11 @@ def query_llmnr(ip: str, timeout: float = 0.6) -> Optional[str]:
 
 
 def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
+    """NetBIOS name query via UDP 137."""
     try:
-        tid = b"\xab\xcd"; flags = b"\x01\x00"; qd = b"\x00\x01"
+        tid = b"\xab\xcd"
+        flags = b"\x01\x00"
+        qd = b"\x00\x01"
         rest = b"\x00\x00\x00\x00\x00\x00"
         name = b"*" + b" " * 15
         enc = bytearray()
@@ -250,6 +273,7 @@ def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
             enc.append(((name[i] - 0x41) & 0x0F) << 4 | ((name[i + 1] - 0x41) & 0x0F))
         qname = bytes([32]) + bytes(enc) + b"\x00"
         packet = tid + flags + qd + rest + qname + b"\x00\x21" + b"\x00\x01"
+
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
         try:
@@ -257,18 +281,20 @@ def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
             data, _ = s.recvfrom(2048)
         finally:
             s.close()
+
         for i in range(len(data) - 18):
             chunk = data[i:i + 16]
             if chunk[15] == 0x00:
                 nm = chunk[:15].decode("ascii", errors="ignore").strip()
                 if nm and len(nm) >= 2 and all(32 <= ord(c) < 127 for c in nm):
-                    return nm
+                    if not nm.startswith("\x00") and not nm.startswith("*"):
+                        return nm
     except Exception:
         return None
     return None
 
 
-def query_reverse_dns(ip: str, timeout: float = 0.4) -> Optional[str]:
+def query_reverse_dns(ip: str, timeout: float = 0.5) -> Optional[str]:
     old = socket.getdefaulttimeout()
     try:
         socket.setdefaulttimeout(timeout)
@@ -281,23 +307,33 @@ def query_reverse_dns(ip: str, timeout: float = 0.4) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Public: resolve one IP to its best name + extra info
+# Resolve — returns name + debug trace
 # ---------------------------------------------------------------------------
 def resolve(ip: str, local_ip: Optional[str] = None,
-            local_name: Optional[str] = None) -> Dict:
+            local_name: Optional[str] = None, debug: bool = False) -> Dict:
     """
-    Returns:
-      {
-        "hostname": str | None,
-        "services": [str],
-        "source":   str  # which method produced the name (for transparency)
-      }
+    Returns {
+      "hostname": str | None,
+      "services": [str],
+      "source":   str,
+      "trace":    { mdns_passive, mdns_active, netbios, llmnr, dns, local }
+    }
     """
-    # Own device — use OS hostname directly
-    if local_ip and ip == local_ip and local_name:
-        return {"hostname": local_name, "services": [], "source": "local"}
+    trace = {
+        "mdns_passive": False,
+        "mdns_active": False,
+        "netbios": False,
+        "llmnr": False,
+        "dns": False,
+        "local": False,
+    }
 
-    # 1. Passive cache first — this is where phone names come from
+    # Own device
+    if local_ip and ip == local_ip and local_name:
+        trace["local"] = True
+        return {"hostname": local_name, "services": [], "source": "local", "trace": trace}
+
+    # 1. Passive mDNS cache
     with _passive_lock:
         entry = _passive.get(ip)
     services: List[str] = []
@@ -306,34 +342,39 @@ def resolve(ip: str, local_ip: Optional[str] = None,
         candidates = [n for n in entry.get("names", []) if n and not n.startswith("_")]
         if candidates:
             candidates.sort(key=len)
-            return {"hostname": candidates[0], "services": services, "source": "mdns-passive"}
+            trace["mdns_passive"] = True
+            return {"hostname": candidates[0], "services": services,
+                    "source": "mdns-passive", "trace": trace}
 
     # 2. Active mDNS
-    n = query_mdns(ip)
+    n = query_mdns_active(ip)
     if n:
-        return {"hostname": n, "services": services, "source": "mdns-active"}
+        trace["mdns_active"] = True
+        return {"hostname": n, "services": services, "source": "mdns-active", "trace": trace}
 
-    # 3. NetBIOS (Windows PCs)
+    # 3. NetBIOS
     n = query_netbios(ip)
     if n:
-        return {"hostname": n, "services": services, "source": "netbios"}
+        trace["netbios"] = True
+        return {"hostname": n, "services": services, "source": "netbios", "trace": trace}
 
     # 4. LLMNR
     n = query_llmnr(ip)
     if n:
-        return {"hostname": n, "services": services, "source": "llmnr"}
+        trace["llmnr"] = True
+        return {"hostname": n, "services": services, "source": "llmnr", "trace": trace}
 
     # 5. Reverse DNS
     n = query_reverse_dns(ip)
     if n:
-        return {"hostname": n, "services": services, "source": "dns"}
+        trace["dns"] = True
+        return {"hostname": n, "services": services, "source": "dns", "trace": trace}
 
-    # 6. Nothing — return services (may help type inference) but no name
-    return {"hostname": None, "services": services, "source": "none"}
+    return {"hostname": None, "services": services, "source": "none", "trace": trace}
 
 
 # ---------------------------------------------------------------------------
-# Guess device type from name + services + vendor
+# Device type from name + services + vendor
 # ---------------------------------------------------------------------------
 def guess_type(name: Optional[str], services: List[str], vendor: str,
                is_gateway: bool, is_self: bool) -> str:
@@ -346,12 +387,9 @@ def guess_type(name: Optional[str], services: List[str], vendor: str,
     v = (vendor or "").lower()
     svc = " ".join(services).lower()
 
-    # Service-based evidence first (strongest)
     if "_googlecast" in svc:
         return "Chromecast"
-    if "_airplay" in svc or "_raop" in svc:
-        return "Apple Device"
-    if "_companion-link" in svc:
+    if "_airplay" in svc or "_raop" in svc or "_companion-link" in svc:
         return "Apple Device"
     if "_androidtvremote" in svc:
         return "Android TV"
@@ -362,7 +400,6 @@ def guess_type(name: Optional[str], services: List[str], vendor: str,
     if "_homekit" in svc:
         return "Smart Home"
 
-    # Name-based evidence
     if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
                             "poco", "oneplus", "moto", "phone")):
         return "Phone"
@@ -386,7 +423,6 @@ def guess_type(name: Optional[str], services: List[str], vendor: str,
     if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua")):
         return "Camera"
 
-    # Vendor-based fallback (only if name didn't tell us)
     if "apple" in v:
         return "Apple Device"
     if "samsung" in v or "xiaomi" in v or "huawei" in v:

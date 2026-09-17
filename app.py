@@ -1,11 +1,19 @@
 """NetScope — local network scanner. Flask backend."""
 from __future__ import annotations
+import logging
 import threading
 import time
 
 from flask import Flask, jsonify, render_template
 
-from backend import discovery, network
+from backend import discovery, hostname as hostname_mod, network
+
+# Route Python logging to stdout so you see it in the terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 app = Flask(__name__)
 
@@ -38,6 +46,7 @@ def api_devices():
         "iface": s["iface"],
         "local_name": s["local_name"],
         "devices": s["devices"],
+        "mdns_stats": s["mdns_stats"],
     })
 
 
@@ -59,6 +68,17 @@ def api_scan_status():
         "progress": s["progress"],
         "last_scan": s["last_scan"],
         "error": s["error"],
+        "mdns_stats": s["mdns_stats"],
+    })
+
+
+@app.route("/api/debug")
+def api_debug():
+    """Shows what the resolver saw, per source."""
+    return jsonify({
+        "success": True,
+        "mdns_passive_stats": hostname_mod.passive_stats(),
+        "passive_cache": hostname_mod.get_passive(),
     })
 
 

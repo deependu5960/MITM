@@ -1,6 +1,7 @@
-"""Orchestrates a full scan: ping → ARP → hostname → vendor → type."""
+"""Orchestrates a scan: ping → ARP → multi-source hostname → vendor → type."""
 from __future__ import annotations
 import ipaddress
+import logging
 import platform
 import re
 import socket
@@ -12,6 +13,14 @@ from typing import Dict, List, Optional, Set
 
 from . import hostname as hostname_mod
 from . import network, vendor
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("discovery")
 
 
 _lock = threading.Lock()
@@ -26,6 +35,7 @@ _state: Dict = {
     "iface": None,
     "local_name": None,
     "progress": 0,
+    "mdns_stats": {},
 }
 
 
@@ -40,6 +50,7 @@ def get_state() -> Dict:
             "iface": dict(_state["iface"]) if _state["iface"] else None,
             "local_name": _state["local_name"],
             "progress": _state["progress"],
+            "mdns_stats": dict(_state["mdns_stats"]),
         }
 
 
@@ -52,7 +63,7 @@ def _set(stage: str = None, progress: int = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ping + ARP
+# Ping + ARP  (unchanged from your working version)
 # ---------------------------------------------------------------------------
 def _ping(ip: str, timeout_ms: int = 700) -> bool:
     system = platform.system().lower()
@@ -105,7 +116,7 @@ def _run_scan() -> None:
 
         iface = network.get_primary()
         if not iface:
-            raise RuntimeError("No active network interface found. Connect to Wi-Fi or Ethernet and retry.")
+            raise RuntimeError("No active network interface found.")
 
         with _lock:
             _state["iface"] = iface
@@ -122,40 +133,56 @@ def _run_scan() -> None:
 
         hosts = network.enumerate_hosts(cidr)
 
-        # Stage 1 — passive mDNS listener in parallel with ping sweep
-        _set("Pinging hosts", 10)
+        # ---- Stage 1: passive mDNS listener (background) ----
+        _set("Listening for device broadcasts", 10)
         listener = threading.Thread(
-            target=hostname_mod.mdns_listen, kwargs={"duration": 7.0}, daemon=True,
+            target=hostname_mod.mdns_listen, kwargs={"duration": 8.0}, daemon=True,
         )
         listener.start()
 
+        log.info("=" * 66)
+        log.info("Scan started — network %s  local IP %s", cidr, local_ip)
+        log.info("=" * 66)
+
+        # ---- Stage 2: ping sweep ----
+        _set("Pinging hosts", 25)
         live: List[str] = []
         with ThreadPoolExecutor(max_workers=96) as ex:
             for ip, ok in zip(hosts, ex.map(_ping, hosts)):
                 if ok:
                     live.append(ip)
+        log.info("Ping sweep: %d/%d hosts responded", len(live), len(hosts))
 
-        _set("Reading ARP cache", 35)
+        # ---- Stage 3: send active mDNS probes to prod silent devices ----
+        _set("Probing devices", 45)
 
-        # Send active mDNS/LLMNR probes to prod silent hosts
-        probe_targets = set(live)
-        probe_targets.update(hosts)  # also probe silent hosts
         def _probe(ip: str) -> None:
             try:
-                hostname_mod.query_mdns(ip, timeout=0.3)
+                hostname_mod.query_mdns_active(ip, timeout=0.3)
             except Exception:
                 pass
+
         with ThreadPoolExecutor(max_workers=64) as ex:
-            list(ex.map(_probe, list(probe_targets)))
+            list(ex.map(_probe, hosts))
 
-        _set("Collecting broadcasts", 55)
-        listener.join(timeout=8.0)
+        # ---- Stage 4: wait for passive listener ----
+        _set("Collecting broadcasts", 60)
+        listener.join(timeout=10.0)
 
-        _set("Reading ARP cache", 60)
+        stats = hostname_mod.passive_stats()
+        log.info("mDNS passive: packets=%d records=%d started=%s bind_error=%s",
+                 stats.get("packets", 0),
+                 stats.get("records", 0),
+                 stats.get("started", False),
+                 stats.get("bind_error"))
+
+        # ---- Stage 5: read ARP table ----
+        _set("Reading ARP cache", 70)
         time.sleep(0.4)
         arp = _arp_table()
+        log.info("ARP table: %d entries", len(arp))
 
-        # Merge IPs
+        # ---- Merge all IP sources ----
         all_ips: Set[str] = set(live)
         for ip in arp:
             try:
@@ -173,13 +200,13 @@ def _run_scan() -> None:
 
         ordered = sorted(all_ips, key=lambda x: tuple(int(p) for p in x.split(".")))
 
-        # Gateway heuristic
         try:
             gateway = str(next(net.hosts()))
         except Exception:
             gateway = None
 
-        _set("Resolving hostnames", 70)
+        # ---- Stage 6: resolve hostname for each device ----
+        _set("Resolving hostnames", 85)
 
         def enrich(ip: str) -> Dict:
             mac = arp.get(ip)
@@ -191,21 +218,35 @@ def _run_scan() -> None:
             name = info["hostname"]
             services = info["services"]
             source = info["source"]
+            trace = info.get("trace", {})
 
             dev_type = hostname_mod.guess_type(
                 name=name, services=services, vendor=vend,
                 is_gateway=(ip == gateway), is_self=(ip == local_ip),
             )
 
+            # ---- DEBUG LOG PER DEVICE ----
+            trace_str = " ".join(
+                f"{k}={'YES' if v else 'no'}" for k, v in trace.items() if v or True
+            )
+            if name:
+                log.info("  %-15s  ARP=%-17s  source=%-13s  hostname=%s",
+                         ip, mac or "—", source, name)
+                log.info("      trace: %s", trace_str)
+            else:
+                log.warning("  %-15s  ARP=%-17s  NO HOSTNAME  vendor=%s  type=%s",
+                            ip, mac or "—", vend, dev_type)
+                log.warning("      trace: %s", trace_str)
+
             return {
                 "ip": ip,
                 "mac": mac,
-                "hostname": name,            # None when genuinely unknown
+                "hostname": name,          # None when genuinely unknown
                 "vendor": vend,
                 "type": dev_type,
                 "services": services,
                 "name_source": source,
-                "status": "online" if ip in live else "online",  # seen = online
+                "status": "online",
                 "is_gateway": ip == gateway,
                 "is_self": ip == local_ip,
                 "last_seen": time.time(),
@@ -214,7 +255,18 @@ def _run_scan() -> None:
         with ThreadPoolExecutor(max_workers=24) as ex:
             devices = list(ex.map(enrich, ordered))
 
-        _set("Finalizing", 95)
+        named = sum(1 for d in devices if d["hostname"])
+        unknown = len(devices) - named
+        log.info("-" * 66)
+        log.info("Scan complete: %d devices, %d named, %d unknown",
+                 len(devices), named, unknown)
+        log.info("-" * 66)
+
+        # Summary of what worked
+        sources = {}
+        for d in devices:
+            sources[d["name_source"]] = sources.get(d["name_source"], 0) + 1
+        log.info("Name source breakdown: %s", sources)
 
         with _lock:
             _state["devices"] = devices
@@ -222,8 +274,10 @@ def _run_scan() -> None:
             _state["error"] = None
             _state["stage"] = "idle"
             _state["progress"] = 100
+            _state["mdns_stats"] = stats
 
     except Exception as e:
+        log.exception("Scan failed")
         with _lock:
             _state["error"] = str(e)
             _state["last_scan"] = time.time()
