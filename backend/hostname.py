@@ -518,57 +518,200 @@ def resolve(ip: str, local_ip: Optional[str] = None,
 # ===========================================================================
 # Device type from name + services + vendor
 # ===========================================================================
-def guess_type(name: Optional[str], services: List[str], vendor: str,
-               is_gateway: bool, is_self: bool) -> str:
+def guess_type(name: Optional[str], services: List[str], vendor: str, is_gateway: bool, is_self: bool) -> str:
+    """
+    Determine the device type. Priority order:
+      1. What the device itself told us (mDNS services).
+      2. What its hostname looks like.
+      3. What its MAC vendor suggests.
+    """
     if is_self:
         return "This Device"
     if is_gateway:
         return "Router"
 
-    # Service evidence — the device itself told us what it is
-    svc_label = label_from_services(services)
-    if svc_label:
-        return svc_label
-
     n = (name or "").lower()
     v = (vendor or "").lower()
+    svc = " ".join(services).lower()
 
-    if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
-                            "poco", "oneplus", "moto", "phone")):
-        return "Phone"
-    if "ipad" in n or "tablet" in n:
-        return "Tablet"
-    if any(k in n for k in ("macbook", "imac", "mac-mini", "mac-pro")):
-        return "Mac"
-    if any(k in n for k in ("laptop", "desktop", "pc-", "-pc",
-                            "thinkpad", "inspiron", "latitude", "xps")):
-        return "Computer"
-    if any(k in n for k in ("printer", "hp-", "canon", "epson", "brother")):
+    # =================================================================
+    # 1. Service evidence — the device itself says what it is
+    # =================================================================
+    # Google / Chromecast / Android TV
+    if "_googlecast" in svc or "googlecast" in n:
+        return "Chromecast"
+    if "_androidtvremote2" in svc or "_androidtvremote" in svc or "androidtv" in n:
+        return "Android TV"
+    if "_googlezone" in svc:
+        return "Smart Speaker"
+    if "_googleprint" in svc:
         return "Printer"
-    if any(k in n for k in ("tv", "roku", "firestick", "bravia", "webos")):
+
+    # Apple
+    if "_companion-link" in svc or "_apple-mobdev2" in svc or "iphone" in n:
+        return "Phone"
+    if "_airplay" in svc and "_raop" in svc:
         return "TV"
-    if any(k in n for k in ("nas", "synology", "qnap", "freenas")):
-        return "NAS"
-    if any(k in n for k in ("echo", "alexa", "nest", "homepod", "sonos")):
+    if "_raop" in svc:
+        return "Smart Speaker"
+    if "_airplay" in svc:
+        return "Apple Device"
+    if "_homekit" in svc or "_hap._tcp" in svc:
         return "Smart Home"
-    if any(k in n for k in ("xbox", "playstation", "nintendo", "switch")):
+    if "_rdlink" in svc or "_sleep-proxy" in svc:
+        return "Apple Device"
+    if "_afpovertcp" in svc or "_smb" in svc and "mac" in n:
+        return "Mac"
+
+    # Amazon
+    if "_amzn-wplay" in svc or "_amazonecho" in svc or "echo" in n or "alexa" in n:
+        return "Smart Speaker"
+    if "_amzn-alexa" in svc:
+        return "Smart Speaker"
+
+    # Printers
+    if "_ipp" in svc or "_pdl-datastream" in svc or "_printer" in svc or "_uscan" in svc:
+        return "Printer"
+    if "_scanner" in svc:
+        return "Scanner"
+
+    # Media / speakers
+    if "_spotify-connect" in svc:
+        return "Smart Speaker"
+    if "_sonos" in svc:
+        return "Smart Speaker"
+    if "_mediaremotetv" in svc or "_airport" in svc or "appletv" in n:
+        return "TV"
+    if "_sleep-proxy" in svc and "_airplay" not in svc:
+        return "Apple Device"
+
+    # Smart home / IoT
+    if "_matter" in svc or "_matterc" in svc:
+        return "Smart Home"
+    if "_tuya" in svc:
+        return "Smart Home"
+    if "_hue" in svc or "philips" in n:
+        return "Smart Home"
+
+    # Computers
+    if "_smb" in svc or "_workstation" in svc:
+        if "mac" in n or "imac" in n or "macbook" in n:
+            return "Mac"
+        return "Computer"
+    if "_ssh" in svc or "_sftp-ssh" in svc:
+        return "Server"
+    if "_rfb" in svc:  # VNC
+        return "Computer"
+
+    # =================================================================
+    # 2. Hostname evidence
+    # =================================================================
+    # Phones
+    if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
+                            "poco", "oneplus", "moto", "xiaomi", "huawei",
+                            "realme", "oppo", "vivo", "nothing",
+                            "-phone", "phone-", "moto-")):
+        return "Phone"
+    if n.startswith("android_"):
+        return "Phone"
+    if "iphone" in n or "ipad" in n:
+        return "Tablet" if "ipad" in n else "Phone"
+
+    # Tablets
+    if any(k in n for k in ("ipad", "tablet", "tab-", "tab_", "galaxy-tab")):
+        return "Tablet"
+
+    # Macs
+    if any(k in n for k in ("macbook", "imac", "mac-mini", "mac-mini-",
+                            "mac-pro", "mac-studio", "air")):
+        if "mac" in n:
+            return "Mac"
+
+    # Laptops / desktops
+    if any(k in n for k in ("laptop", "notebook", "thinkpad", "inspiron",
+                            "latitude", "xps", "surface", "vivobook",
+                            "ideapad", "pavilion", "probook", "elitebook")):
+        return "Laptop"
+    if any(k in n for k in ("desktop", "pc-", "-pc", "workstation",
+                            "precision", "optiplex", "thinkcentre")):
+        return "Computer"
+
+    # Windows-specific
+    if n.startswith("desktop-") or n.startswith("win-"):
+        return "Computer"
+
+    # Printers
+    if any(k in n for k in ("printer", "hp-", "canon", "epson", "brother",
+                            "lexmark", "xerox", "officejet", "deskjet",
+                            "laserjet", "pixma", "workforce")):
+        return "Printer"
+
+    # TVs
+    if any(k in n for k in ("tv", "roku", "firestick", "fire-tv", "bravia",
+                            "webos", "tizen", "appletv", "chromecast",
+                            "shield", "lgtv", "samsungtv", "vizio")):
+        return "TV"
+
+    # NAS
+    if any(k in n for k in ("nas", "synology", "diskstation", "qnap",
+                            "freenas", "truenas", "readynas")):
+        return "NAS"
+
+    # Speakers
+    if any(k in n for k in ("echo", "alexa", "nest", "homepod", "sonos",
+                            "harman", "bose", "jbl", "soundbar")):
+        return "Smart Speaker"
+
+    # Consoles
+    if any(k in n for k in ("xbox", "playstation", "ps4", "ps5", "nintendo",
+                            "switch")):
         return "Console"
-    if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua")):
+
+    # Cameras
+    if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua", "reolink",
+                            "wyze", "arlo", "ring-")):
         return "Camera"
 
+    # Routers / network gear
+    if any(k in n for k in ("router", "gateway", "fritz", "openwrt", "unifi",
+                            "ubiquiti", "mikrotik", "edgerouter", "orbi",
+                            "velop", "deco")):
+        return "Router"
+
+    # =================================================================
+    # 3. Vendor evidence (weakest — only when nothing else matched)
+    # =================================================================
     if "apple" in v:
         return "Apple Device"
-    if "samsung" in v or "xiaomi" in v or "huawei" in v:
-        return "Mobile Device"
     if "raspberry" in v:
         return "Raspberry Pi"
-    if any(x in v for x in ("vmware", "virtualbox", "qemu", "hyper-v")):
+    if any(x in v for x in ("vmware", "virtualbox", "qemu", "hyper-v", "xen")):
         return "Virtual Machine"
-    if any(x in v for x in ("hp", "dell", "lenovo", "asus", "intel", "realtek")):
+    if "intel" in v or "realtek" in v or "broadcom" in v:
         return "Computer"
-    if any(x in v for x in ("cisco", "netgear", "tp-link", "d-link")):
+    if any(x in v for x in ("hp", "dell", "lenovo", "asus", "acer",
+                            "msi", "toshiba", "samsung electronics")):
+        return "Computer"
+    if any(x in v for x in ("cisco", "netgear", "tp-link", "d-link",
+                            "ubiquiti", "mikrotik", "aruba", "ruckus")):
         return "Network Device"
-    if any(x in v for x in ("epson", "canon", "brother")):
+    if any(x in v for x in ("epson", "canon", "brother", "lexmark", "xerox")):
         return "Printer"
+    if any(x in v for x in ("sonos", "bose", "harman", "jbl", "sony")):
+        return "Smart Speaker"
+    if "samsung" in v or "xiaomi" in v or "huawei" in v or "oneplus" in v:
+        return "Phone"
+    if "google" in v or "nest" in v:
+        return "Chromecast"
+    if "amazon" in v:
+        return "Smart Speaker"
+    if "lg" in v or "philips" in v or "vizio" in v:
+        return "TV"
+    if "hikvision" in v or "dahua" in v or "reolink" in v:
+        return "Camera"
+    if "nintendo" in v:
+        return "Console"
+    if "microsoft" in v:
+        return "Computer"
 
     return "Unknown"
