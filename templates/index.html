@@ -276,44 +276,198 @@
         </div>
 
         <div class="mitm-targets">
+          <div class="target-row"><span class="k">Target</span><span class="v" id="mitm-vname">—</span></div>
           <div class="target-row"><span class="k">Target IP</span><span class="v" id="mitm-vip">—</span></div>
-          <div class="target-row"><span class="k">Target MAC</span><span class="v" id="mitm-vmac">—</span></div>
+          <div class="target-row"><span class="k">Gateway</span><span class="v" id="mitm-gname">—</span></div>
           <div class="target-row"><span class="k">Gateway IP</span><span class="v" id="mitm-gip">—</span></div>
-          <div class="target-row"><span class="k">Gateway MAC</span><span class="v" id="mitm-gmac">—</span></div>
           <div class="target-row"><span class="k">Interface</span><span class="v" id="mitm-iface">—</span></div>
-          <div class="target-row"><span class="k">Attacker IP</span><span class="v" id="mitm-aip">—</span></div>
           <div class="target-row"><span class="k">Attacker MAC</span><span class="v" id="mitm-amac">—</span></div>
         </div>
 
-        <div class="packet-filters">
-          <button class="chip active" data-filter="ALL">All</button>
-          <button class="chip" data-filter="ARP">ARP</button>
-          <button class="chip" data-filter="DNS">DNS</button>
-          <button class="chip" data-filter="TCP">TCP</button>
-          <button class="chip" data-filter="UDP">UDP</button>
-          <button class="chip" data-filter="ICMP">ICMP</button>
-          <span class="packet-count" id="packet-count">0 packets</span>
+        <!-- Tab strip -->
+        <div class="mitm-tabs" role="tablist">
+          <button class="mitm-tab active" data-tab="control">Control</button>
+          <button class="mitm-tab" data-tab="arp">ARP Truth</button>
+          <button class="mitm-tab" data-tab="traffic">Traffic</button>
+          <button class="mitm-tab" data-tab="raw">Raw Packets</button>
         </div>
 
-        <div class="packet-table-wrap">
-          <table class="packet-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Source</th>
-                <th>Destination</th>
-                <th>Proto</th>
-                <th>Len</th>
-                <th>Summary</th>
-              </tr>
-            </thead>
-            <tbody id="packet-tbody"></tbody>
-          </table>
-          <div class="packet-empty" id="packet-empty">
-            Waiting for packets… start a MITM session on a device.
+        <!-- ============== TAB 1 · CONTROL ============== -->
+        <div class="mitm-tabpane" data-pane="control">
+          <div class="control-hero">
+            <div class="control-state">
+              <div class="control-state-badge" id="ctrl-state-badge">stopped</div>
+              <div class="control-state-sub" id="ctrl-state-sub">No session running</div>
+            </div>
+          </div>
+
+          <div class="control-cards">
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">Target</div>
+              <div class="ctrl-card-v" id="ctrl-victim">—</div>
+            </div>
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">Gateway</div>
+              <div class="ctrl-card-v" id="ctrl-gateway">—</div>
+            </div>
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">Interface</div>
+              <div class="ctrl-card-v" id="ctrl-iface">—</div>
+            </div>
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">Forwarding</div>
+              <div class="ctrl-card-v" id="ctrl-forwarding">—</div>
+            </div>
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">ARP sends</div>
+              <div class="ctrl-card-v" id="ctrl-arp-sends">0</div>
+            </div>
+            <div class="ctrl-card">
+              <div class="ctrl-card-k">Packets captured</div>
+              <div class="ctrl-card-v" id="ctrl-packets">0</div>
+            </div>
+          </div>
+
+          <div class="control-note">
+            Your device is relaying traffic between the target and the gateway.
+            ARP caches on both sides point at you. All traffic passes through this host.
+          </div>
+        </div>
+
+        <!-- ============== TAB 2 · ARP TRUTH ============== -->
+        <div class="mitm-tabpane hidden" data-pane="arp">
+          <div class="arp-grid">
+            <div class="arp-card arp-to-victim">
+              <div class="arp-card-head">
+                <div class="arp-card-label">LYING TO THE TARGET</div>
+                <div class="arp-card-target" id="arp-victim-target">—</div>
+              </div>
+              <div class="arp-lie-block">
+                <div class="arp-lie-line">
+                  <span class="arp-lie-k">Claim</span>
+                  <span class="arp-lie-v" id="arp-victim-claim">—</span>
+                </div>
+                <div class="arp-lie-line">
+                  <span class="arp-lie-k">Is at</span>
+                  <span class="arp-lie-v mono" id="arp-victim-mac">—</span>
+                </div>
+              </div>
+              <div class="arp-truth-block">
+                <div class="arp-lie-k">Truth was</div>
+                <div class="arp-lie-v mono dim" id="arp-victim-truth">—</div>
+              </div>
+              <div class="arp-counter">
+                <div class="arp-counter-num" id="arp-victim-count">0</div>
+                <div class="arp-counter-label">sends</div>
+                <div class="arp-counter-sub" id="arp-victim-last">never</div>
+              </div>
+            </div>
+
+            <div class="arp-card arp-to-gateway">
+              <div class="arp-card-head">
+                <div class="arp-card-label">LYING TO THE GATEWAY</div>
+                <div class="arp-card-target" id="arp-gateway-target">—</div>
+              </div>
+              <div class="arp-lie-block">
+                <div class="arp-lie-line">
+                  <span class="arp-lie-k">Claim</span>
+                  <span class="arp-lie-v" id="arp-gateway-claim">—</span>
+                </div>
+                <div class="arp-lie-line">
+                  <span class="arp-lie-k">Is at</span>
+                  <span class="arp-lie-v mono" id="arp-gateway-mac">—</span>
+                </div>
+              </div>
+              <div class="arp-truth-block">
+                <div class="arp-lie-k">Truth was</div>
+                <div class="arp-lie-v mono dim" id="arp-gateway-truth">—</div>
+              </div>
+              <div class="arp-counter">
+                <div class="arp-counter-num" id="arp-gateway-count">0</div>
+                <div class="arp-counter-label">sends</div>
+                <div class="arp-counter-sub" id="arp-gateway-last">never</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============== TAB 3 · TRAFFIC ============== -->
+        <div class="mitm-tabpane hidden" data-pane="traffic">
+          <div class="traffic-head">
+            <div class="traffic-title" id="traffic-title">Target is browsing…</div>
+            <div class="traffic-summary" id="traffic-summary">0 destinations · 0 KB</div>
+          </div>
+          <div class="traffic-list" id="traffic-list"></div>
+          <div class="traffic-empty" id="traffic-empty">
+            Waiting for the target to make connections…
+          </div>
+        </div>
+
+        <!-- ============== TAB 4 · RAW PACKETS ============== -->
+        <div class="mitm-tabpane hidden" data-pane="raw">
+          <div class="packet-filters">
+            <button class="chip active" data-filter="ALL">All</button>
+            <button class="chip" data-filter="ARP">ARP</button>
+            <button class="chip" data-filter="DNS">DNS</button>
+            <button class="chip" data-filter="TCP">TCP</button>
+            <button class="chip" data-filter="UDP">UDP</button>
+            <button class="chip" data-filter="ICMP">ICMP</button>
+            <span class="packet-count" id="packet-count">0 packets</span>
+          </div>
+          <div class="packet-table-wrap">
+            <table class="packet-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Proto</th>
+                  <th>Len</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody id="packet-tbody"></tbody>
+            </table>
+            <div class="packet-empty" id="packet-empty">
+              Waiting for packets… start a MITM session on a device.
+            </div>
           </div>
         </div>
       </section>
+
+      <!-- Flow drawer -->
+      <div class="flow-drawer hidden" id="flow-drawer">
+        <div class="flow-drawer-backdrop" data-flow-close></div>
+        <div class="flow-drawer-panel">
+          <div class="flow-drawer-head">
+            <div>
+              <div class="flow-drawer-title" id="flow-drawer-title">—</div>
+              <div class="flow-drawer-sub" id="flow-drawer-sub">—</div>
+            </div>
+            <button class="btn-icon" data-flow-close aria-label="Close">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="flow-drawer-stats" id="flow-drawer-stats"></div>
+          <div class="flow-drawer-packets">
+            <table class="packet-table small">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Proto</th>
+                  <th>Len</th>
+                </tr>
+              </thead>
+              <tbody id="flow-drawer-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
     </main>
   </div>

@@ -1,50 +1,53 @@
-"""Server-Sent Events broadcaster for packet records."""
+"""SSE broadcaster with three event kinds: packet, flow, arp."""
 from __future__ import annotations
 import json
-import logging
 import queue
 import threading
-import time
-from typing import List, Optional
+from typing import List
 
-from .models import PacketRecord
+from .models import PacketRecord, Flow
 
-log = logging.getLogger("mitm.stream")
+RING_MAX = 5000
 
 
 class PacketStream:
-    """
-    Central hub. One producer queue -> many subscriber queues.
-    Subscribers are SSE generators that pull from their own queue.
-    """
-
-    def __init__(self, max_queue: int = 5000):
+    def __init__(self):
         self._lock = threading.Lock()
         self._subscribers: List[queue.Queue] = []
         self._ring: List[PacketRecord] = []
-        self._ring_max = max_queue
         self._paused = False
 
-    # ---------- Producer side ----------
+    # ---------- publish ----------
     def publish(self, record: PacketRecord) -> None:
         if self._paused:
             return
         with self._lock:
             self._ring.append(record)
-            if len(self._ring) > self._ring_max:
-                self._ring = self._ring[-self._ring_max:]
+            if len(self._ring) > RING_MAX:
+                self._ring = self._ring[-RING_MAX:]
             subs = list(self._subscribers)
         for q in subs:
-            try:
-                q.put_nowait(record)
-            except queue.Full:
-                pass
+            self._push(q, "packet", record.to_dict())
 
-    def publish_many(self, records: List[PacketRecord]) -> None:
-        for r in records:
-            self.publish(r)
+    def publish_flow(self, flow: dict) -> None:
+        with self._lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            self._push(q, "flow", flow)
 
-    # ---------- Consumer side ----------
+    def publish_arp(self, stats: dict) -> None:
+        with self._lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            self._push(q, "arp", stats)
+
+    def _push(self, q: queue.Queue, event: str, payload: dict) -> None:
+        try:
+            q.put_nowait((event, payload))
+        except queue.Full:
+            pass
+
+    # ---------- subscribers ----------
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=2000)
         with self._lock:
@@ -66,7 +69,6 @@ class PacketStream:
         with self._lock:
             self._ring.clear()
 
-    # ---------- Pause / resume ----------
     def pause(self) -> None:
         self._paused = True
 
@@ -78,23 +80,19 @@ class PacketStream:
 
     # ---------- SSE generator ----------
     def sse_stream(self):
-        """Yield SSE-formatted events. Caller wraps this in a Flask Response."""
         q = self.subscribe()
         try:
-            # Send a hello so the client knows it's connected
             yield "event: hello\ndata: {}\n\n"
             while True:
                 try:
-                    rec = q.get(timeout=15)
+                    event, payload = q.get(timeout=15)
                 except queue.Empty:
-                    # Heartbeat to keep proxies from closing the connection
                     yield ": keepalive\n\n"
                     continue
-                payload = json.dumps(rec.to_dict(), default=str)
-                yield f"event: packet\ndata: {payload}\n\n"
+                body = json.dumps(payload, default=str)
+                yield f"event: {event}\ndata: {body}\n\n"
         finally:
             self.unsubscribe(q)
 
 
-# Global stream (single-process Flask)
 STREAM = PacketStream()

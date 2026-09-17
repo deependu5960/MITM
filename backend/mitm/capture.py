@@ -1,15 +1,10 @@
-"""Packet capture worker — sniffs, normalizes, and queues records.
-
-Uses scapy's AsyncSniffer so we don't lose packets between iterations.
-No BPF filter by default (we capture everything on the lab interface and
-let normalize() classify). Metadata only — no payload inspection.
-"""
+"""Packet capture — AsyncSniffer, normalized records, flow tracking hook."""
 from __future__ import annotations
 import logging
 import queue
 import threading
 import time
-from typing import Optional
+from typing import Optional, Callable
 
 from .models import PacketRecord
 
@@ -54,7 +49,6 @@ def _ports(pkt):
 
 
 def _summary(pkt, proto: str, src_ip, dst_ip, sport, dport) -> str:
-    """Short, metadata-only summary. No DNS query names, no payloads."""
     try:
         from scapy.layers.inet import TCP  # type: ignore
         if proto == "TCP" and pkt.haslayer(TCP):
@@ -82,10 +76,8 @@ def _summary(pkt, proto: str, src_ip, dst_ip, sport, dport) -> str:
 def normalize(pkt) -> PacketRecord:
     proto = _proto_name(pkt)
     sport, dport = _ports(pkt)
-
     src_ip = dst_ip = None
     src_mac = dst_mac = None
-
     try:
         from scapy.layers.l2 import Ether, ARP  # type: ignore
         from scapy.layers.inet import IP  # type: ignore
@@ -103,21 +95,15 @@ def normalize(pkt) -> PacketRecord:
             dst_ip = a.pdst
     except Exception:
         pass
-
     try:
         pkt_len = len(pkt)
     except Exception:
         pkt_len = 0
-
     return PacketRecord(
         ts=time.time(),
-        src_mac=src_mac,
-        dst_mac=dst_mac,
-        src_ip=src_ip,
-        dst_ip=dst_ip,
-        protocol=proto,
-        src_port=sport,
-        dst_port=dport,
+        src_mac=src_mac, dst_mac=dst_mac,
+        src_ip=src_ip, dst_ip=dst_ip,
+        protocol=proto, src_port=sport, dst_port=dport,
         length=pkt_len,
         summary=_summary(pkt, proto, src_ip, dst_ip, sport, dport),
     )
@@ -125,15 +111,18 @@ def normalize(pkt) -> PacketRecord:
 
 class PacketCapturer:
     """
-    Wraps scapy's AsyncSniffer. Starts a background thread that receives
-    every packet on the given interface and pushes normalized records into
-    the output queue. Stops cleanly when stop() is called.
+    AsyncSniffer wrapper. Two hooks:
+      - on_packet(record)  : every normalized record (for the Raw tab)
+      - on_flow(pkt)       : the raw scapy packet (for the flow tracker)
     """
 
-    def __init__(self, iface: str, out_queue: "queue.Queue[PacketRecord]",
+    def __init__(self, iface: str,
+                 out_queue: "queue.Queue[PacketRecord]",
+                 on_flow: Optional[Callable] = None,
                  bpf: Optional[str] = None):
         self.iface = iface
         self.queue = out_queue
+        self.on_flow = on_flow
         self.bpf = bpf
         self._sniffer = None
         self._count = 0
@@ -146,6 +135,14 @@ class PacketCapturer:
             return self._count
 
     def _handle(self, pkt) -> None:
+        # Flow tracking first (needs the raw packet)
+        if self.on_flow is not None:
+            try:
+                self.on_flow(pkt)
+            except Exception as e:
+                log.debug("on_flow failed: %s", e)
+
+        # Then the normalized record for the GUI
         try:
             rec = normalize(pkt)
         except Exception as e:
@@ -168,13 +165,8 @@ class PacketCapturer:
         except Exception as e:
             log.error("scapy unavailable: %s", e)
             return
-
         try:
-            kwargs = {
-                "iface": self.iface,
-                "prn": self._handle,
-                "store": False,
-            }
+            kwargs = {"iface": self.iface, "prn": self._handle, "store": False}
             if self.bpf:
                 kwargs["filter"] = self.bpf
             self._sniffer = AsyncSniffer(**kwargs)

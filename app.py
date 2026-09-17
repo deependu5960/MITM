@@ -187,6 +187,13 @@ def mitm_stream():
     resp.headers["Connection"] = "keep-alive"
     return resp
 
+@app.route("/api/mitm/flows")
+def mitm_flows():
+    return jsonify({
+        "success": True,
+        "flows": get_manager().get_flows(),
+    })
+
 
 # ==========================================================================
 # Boot
