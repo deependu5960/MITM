@@ -1,4 +1,4 @@
-"""Multi-source hostname resolution with per-source debug output.
+"""Multi-source hostname resolution with service-based device labelling.
 
 Sources, in the order the final name is decided:
   1. Passive mDNS listener  — catches phone / IoT / Chromecast broadcasts.
@@ -8,17 +8,14 @@ Sources, in the order the final name is decided:
   5. Reverse DNS            — any device with a PTR record.
   6. Local OS hostname      — for our own IP.
 
-Never invents a name. If nothing answers, returns None and the GUI shows
-"Unknown Device".
+Two additional helpers sit on top:
+  - label_from_services()   — turns mDNS service names into a friendly
+                              device category ("Chromecast", "iPhone", …).
+  - guess_type()            — combines name + services + vendor into a
+                              final device type.
 
-The passive mDNS listener is what makes phones appear. Phones rarely answer
-active queries, but they broadcast mDNS queries and announcements constantly.
-To catch them we have to parse:
-  - QUESTION records  (a phone asking "who has _airplay._tcp.local?" reveals
-    that the asking IP is likely an Apple device)
-  - ANSWER records    (A / PTR / SRV / TXT records with actual names)
-  - ADDITIONAL records (many Apple devices append their own A record to every
-    query, giving us hostname → IP mapping for free)
+Never invents a hostname. If nothing answers, returns None and the GUI
+shows "Unknown Device" (or a service-derived category if one exists).
 """
 from __future__ import annotations
 import logging
@@ -88,10 +85,9 @@ def passive_stats() -> Dict:
 
 
 # ===========================================================================
-# DNS name encoding / decoding (shared between mDNS, LLMNR, and DNS parsers)
+# DNS name encoding / decoding (shared)
 # ===========================================================================
 def _skip_name(data: bytes, off: int) -> int:
-    """Advance past a DNS name (handles compression pointers)."""
     for _ in range(128):
         if off >= len(data):
             return off
@@ -105,10 +101,6 @@ def _skip_name(data: bytes, off: int) -> int:
 
 
 def _read_name(data: bytes, off: int) -> Tuple[Optional[str], int]:
-    """
-    Decode a DNS name at `off`. Handles compression pointers.
-    Returns (name_or_None, new_offset).
-    """
     labels: List[str] = []
     jumped = False
     orig = off
@@ -147,16 +139,12 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
     """
     Parse an mDNS packet — BOTH queries and responses.
 
-    This is the critical function. Most mDNS traffic on a home LAN is queries,
-    not responses. The old version filtered out all queries, which is why the
-    cache was always empty even though packets were arriving.
+    Most home-LAN mDNS traffic is queries. Devices ask "who has
+    _googlecast._tcp.local?" constantly, and the service name in the
+    question is enough to fingerprint the asking IP.
 
-    Queries reveal:
-      - the service the sender is looking for (QUESTION section)
-      - often the sender's own hostname (ADDITIONAL section, e.g. iPhone)
-    Responses reveal:
-      - hostname → IP mappings (A records)
-      - service PTR / SRV / TXT records
+    Additionally, some devices append their own hostname as an A record in
+    the ADDITIONAL section of a query. We capture that too.
     """
     try:
         if len(data) < 12:
@@ -172,8 +160,6 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
                 return
             qtype, qclass = struct.unpack(">HH", data[off:off + 4])
             off += 4
-            # If someone is asking for a PTR record, the name is a service
-            # they're interested in. That's a strong hint about their type.
             if name and qtype == 12:
                 _record_service(src_ip, name)
 
@@ -192,37 +178,27 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
                 return
 
             if rtype == 1 and rdlen == 4:
-                # A record: "<name> is at <ip>". Useful only if the IP matches
-                # the sender (that's the "I am X" case).
+                # A record — "<name> is at <ip>"
                 ip = ".".join(str(b) for b in data[rdata:end])
                 if ip == src_ip and name:
                     _record_name(src_ip, name)
 
-            elif rtype == 28 and rdlen == 16:
-                # AAAA — IPv6, ignore for now but don't crash on it.
-                pass
-
             elif rtype == 12:
-                # PTR: service announcement. The target is the service name.
+                # PTR — service announcement
                 target, _ = _read_name(data, rdata)
                 if target:
                     _record_service(src_ip, target)
-                    # For reverse lookups (<ip>.in-addr.arpa -> hostname.local),
-                    # the PTR target is also a hostname.
                     if "in-addr.arpa" in (name or "").lower():
                         _record_name(src_ip, target)
 
             elif rtype == 33 and rdlen >= 6:
-                # SRV: "<target host> is serving <service> on port N".
-                # Bytes 0-5 are priority, weight, port. Target hostname
-                # starts at rdata+6.
+                # SRV — "<target>.local is serving <service>"
                 target, _ = _read_name(data, rdata + 6)
                 if target:
                     _record_name(src_ip, target)
 
             elif rtype == 16:
-                # TXT: key=value pairs. Devices often publish their friendly
-                # name in a `name=` / `fn=` / `model=` field.
+                # TXT — look for fn= / name= / model= fields
                 try:
                     i = rdata
                     while i < end:
@@ -235,8 +211,6 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
                         m = re.match(r"^(fn|name|model|md)=(.+)$", entry, re.IGNORECASE)
                         if m:
                             val = m.group(2).strip()
-                            # Sanity filters: skip things that look like a
-                            # version string or a bare model code.
                             if val and 2 <= len(val) <= 64 and not val.isdigit():
                                 _record_name(src_ip, val)
                 except Exception:
@@ -245,15 +219,10 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
             off = end
 
     except Exception:
-        # Never let a malformed packet kill the listener.
         pass
 
 
-def mdns_listen(duration: float = 8.0) -> None:
-    """
-    Listen to mDNS multicast for `duration` seconds.
-    Populates the passive cache with names and services seen on the wire.
-    """
+def mdns_listen(duration: float = 12.0) -> None:
     sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -311,7 +280,6 @@ def mdns_listen(duration: float = 8.0) -> None:
 # Active queries
 # ===========================================================================
 def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
-    """Send a PTR query for an IP and parse the first PTR response."""
     try:
         rev = ".".join(reversed(ip.split("."))) + ".in-addr.arpa"
         qname = b""
@@ -367,7 +335,6 @@ def query_llmnr(ip: str, timeout: float = 0.6) -> Optional[str]:
 
 
 def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
-    """NetBIOS Name Service query over UDP 137 (Windows workstations)."""
     try:
         tid = b"\xab\xcd"
         flags = b"\x01\x00"
@@ -388,8 +355,6 @@ def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
         finally:
             s.close()
 
-        # Walk the response looking for "<15 chars><type byte>"
-        # type 0x00 = workstation name.
         for i in range(len(data) - 18):
             chunk = data[i:i + 16]
             if chunk[15] == 0x00:
@@ -415,7 +380,76 @@ def query_reverse_dns(ip: str, timeout: float = 0.5) -> Optional[str]:
 
 
 # ===========================================================================
-# Public: resolve one IP using every source, return name + trace
+# Service → label mapping
+# ===========================================================================
+def label_from_services(services: List[str]) -> Optional[str]:
+    """
+    Turn mDNS service strings into a friendly device label.
+    Uses evidence the device itself broadcast — never invents a name.
+    """
+    svc = " ".join(services).lower()
+
+    # Google / Android
+    if "_googlecast" in svc:
+        return "Chromecast"
+    if "_androidtvremote2" in svc or "_androidtvremote" in svc:
+        return "Android TV"
+    if "_googlezone" in svc:
+        return "Google Home"
+
+    # Apple
+    if "_companion-link" in svc or "_apple-mobdev2" in svc:
+        return "iPhone"
+    if "_airplay" in svc and "_raop" in svc:
+        return "Apple TV"
+    if "_raop" in svc:
+        return "AirPlay Speaker"
+    if "_airplay" in svc:
+        return "AirPlay Device"
+    if "_homekit" in svc or "_hap._tcp" in svc:
+        return "HomeKit Accessory"
+    if "_rdlink" in svc or "_sleep-proxy" in svc:
+        return "Apple Device"
+
+    # Amazon
+    if "_amzn-wplay" in svc or "_amazonecho" in svc:
+        return "Amazon Echo"
+    if "_amzn-alexa" in svc:
+        return "Amazon Device"
+
+    # Printers
+    if "_ipp" in svc or "_pdl-datastream" in svc or "_printer" in svc:
+        return "Printer"
+    if "_scanner" in svc:
+        return "Scanner"
+
+    # Media / speakers
+    if "_spotify-connect" in svc:
+        return "Speaker"
+    if "_sonos" in svc:
+        return "Sonos Speaker"
+    if "_mediaremotetv" in svc:
+        return "Smart TV"
+
+    # Smart home
+    if "_matter" in svc or "_matterc" in svc:
+        return "Matter Device"
+    if "_tuya" in svc:
+        return "Smart Device"
+
+    # Computers
+    if "_smb" in svc or "_workstation" in svc:
+        return "Windows PC"
+    if "_afpovertcp" in svc:
+        return "Mac"
+    if "_ssh" in svc or "_sftp-ssh" in svc:
+        return "Linux Device"
+
+    return None
+
+
+# ===========================================================================
+# Public: resolve one IP using every source
 # ===========================================================================
 def resolve(ip: str, local_ip: Optional[str] = None,
             local_name: Optional[str] = None) -> Dict:
@@ -437,12 +471,11 @@ def resolve(ip: str, local_ip: Optional[str] = None,
         "local": False,
     }
 
-    # Own device — read from OS directly
     if local_ip and ip == local_ip and local_name:
         trace["local"] = True
         return {"hostname": local_name, "services": [], "source": "local", "trace": trace}
 
-    # 1. Passive mDNS cache (what we just fixed)
+    # 1. Passive mDNS cache
     with _passive_lock:
         entry = _passive.get(ip)
     services: List[str] = []
@@ -450,14 +483,12 @@ def resolve(ip: str, local_ip: Optional[str] = None,
         services = list(entry.get("services", []))
         candidates = [n for n in entry.get("names", []) if n and not n.startswith("_")]
         if candidates:
-            # Prefer the shortest name — usually the device's own name,
-            # not a service identifier.
             candidates.sort(key=len)
             trace["mdns_passive"] = True
             return {"hostname": candidates[0], "services": services,
                     "source": "mdns-passive", "trace": trace}
 
-    # 2. Active mDNS PTR
+    # 2. Active mDNS
     n = query_mdns_active(ip)
     if n:
         trace["mdns_active"] = True
@@ -494,29 +525,14 @@ def guess_type(name: Optional[str], services: List[str], vendor: str,
     if is_gateway:
         return "Router"
 
+    # Service evidence — the device itself told us what it is
+    svc_label = label_from_services(services)
+    if svc_label:
+        return svc_label
+
     n = (name or "").lower()
     v = (vendor or "").lower()
-    svc = " ".join(services).lower()
 
-    # Service-based evidence (strongest — the device told us what it is)
-    if "_googlecast" in svc:
-        return "Chromecast"
-    if "_airplay" in svc or "_raop" in svc or "_companion-link" in svc:
-        return "Apple Device"
-    if "_androidtvremote" in svc:
-        return "Android TV"
-    if "_ipp" in svc or "_printer" in svc or "_pdl-datastream" in svc:
-        return "Printer"
-    if "_spotify-connect" in svc:
-        return "Speaker"
-    if "_homekit" in svc:
-        return "Smart Home"
-    if "_googlezone" in svc or "_googlecast" in svc:
-        return "Google Device"
-    if "_amzn-wplay" in svc or "_amazon" in svc:
-        return "Amazon Device"
-
-    # Name-based evidence
     if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
                             "poco", "oneplus", "moto", "phone")):
         return "Phone"
@@ -540,7 +556,6 @@ def guess_type(name: Optional[str], services: List[str], vendor: str,
     if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua")):
         return "Camera"
 
-    # Vendor-based fallback (only when name is silent)
     if "apple" in v:
         return "Apple Device"
     if "samsung" in v or "xiaomi" in v or "huawei" in v:

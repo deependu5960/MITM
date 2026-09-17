@@ -63,7 +63,7 @@ def _set(stage: str = None, progress: int = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ping + ARP  (unchanged from your working version)
+# Ping + ARP
 # ---------------------------------------------------------------------------
 def _ping(ip: str, timeout_ms: int = 700) -> bool:
     system = platform.system().lower()
@@ -136,7 +136,7 @@ def _run_scan() -> None:
         # ---- Stage 1: passive mDNS listener (background) ----
         _set("Listening for device broadcasts", 10)
         listener = threading.Thread(
-            target=hostname_mod.mdns_listen, kwargs={"duration": 8.0}, daemon=True,
+            target=hostname_mod.mdns_listen, kwargs={"duration": 12.0}, daemon=True,
         )
         listener.start()
 
@@ -167,12 +167,13 @@ def _run_scan() -> None:
 
         # ---- Stage 4: wait for passive listener ----
         _set("Collecting broadcasts", 60)
-        listener.join(timeout=10.0)
+        listener.join(timeout=14.0)
 
         stats = hostname_mod.passive_stats()
-        log.info("mDNS passive: packets=%d records=%d started=%s bind_error=%s",
+        log.info("mDNS passive: packets=%d records=%d services=%d started=%s bind_error=%s",
                  stats.get("packets", 0),
                  stats.get("records", 0),
+                 stats.get("services", 0),
                  stats.get("started", False),
                  stats.get("bind_error"))
 
@@ -220,28 +221,35 @@ def _run_scan() -> None:
             source = info["source"]
             trace = info.get("trace", {})
 
+            # If no hostname but we do have service evidence, use a
+            # service-derived category as the display name. This is
+            # not a fake hostname — it's what the device itself broadcast.
+            if not name and services:
+                label = hostname_mod.label_from_services(services)
+                if label:
+                    name = label
+                    source = "services"
+
             dev_type = hostname_mod.guess_type(
                 name=name, services=services, vendor=vend,
                 is_gateway=(ip == gateway), is_self=(ip == local_ip),
             )
 
-            # ---- DEBUG LOG PER DEVICE ----
             trace_str = " ".join(
-                f"{k}={'YES' if v else 'no'}" for k, v in trace.items() if v or True
+                f"{k}={'YES' if v else 'no'}" for k, v in trace.items()
             )
             if name:
-                log.info("  %-15s  ARP=%-17s  source=%-13s  hostname=%s",
+                log.info("  %-15s  ARP=%-17s  source=%-13s  name=%s",
                          ip, mac or "—", source, name)
-                log.info("      trace: %s", trace_str)
             else:
-                log.warning("  %-15s  ARP=%-17s  NO HOSTNAME  vendor=%s  type=%s",
+                log.warning("  %-15s  ARP=%-17s  NO NAME  vendor=%s  type=%s",
                             ip, mac or "—", vend, dev_type)
-                log.warning("      trace: %s", trace_str)
+            log.info("      trace: %s", trace_str)
 
             return {
                 "ip": ip,
                 "mac": mac,
-                "hostname": name,          # None when genuinely unknown
+                "hostname": name,
                 "vendor": vend,
                 "type": dev_type,
                 "services": services,
@@ -262,7 +270,6 @@ def _run_scan() -> None:
                  len(devices), named, unknown)
         log.info("-" * 66)
 
-        # Summary of what worked
         sources = {}
         for d in devices:
             sources[d["name_source"]] = sources.get(d["name_source"], 0) + 1
