@@ -1,22 +1,4 @@
-"""Multi-source hostname resolution with service-based device labelling.
-
-Sources, in the order the final name is decided:
-  1. Passive mDNS listener  — catches phone / IoT / Chromecast broadcasts.
-  2. Active mDNS PTR        — asks the device directly.
-  3. NetBIOS name query     — Windows PCs (UDP 137).
-  4. LLMNR                  — modern Windows (UDP 5355).
-  5. Reverse DNS            — any device with a PTR record.
-  6. Local OS hostname      — for our own IP.
-
-Two additional helpers sit on top:
-  - label_from_services()   — turns mDNS service names into a friendly
-                              device category ("Chromecast", "iPhone", …).
-  - guess_type()            — combines name + services + vendor into a
-                              final device type.
-
-Never invents a hostname. If nothing answers, returns None and the GUI
-shows "Unknown Device" (or a service-derived category if one exists).
-"""
+"""Multi-source hostname resolution with service-based device labelling."""
 from __future__ import annotations
 import logging
 import re
@@ -30,7 +12,7 @@ log = logging.getLogger("hostname")
 
 
 # ===========================================================================
-# Passive mDNS cache
+# Passive cache
 # ===========================================================================
 _passive_lock = threading.Lock()
 _passive: Dict[str, Dict[str, Set[str]]] = {}
@@ -85,7 +67,7 @@ def passive_stats() -> Dict:
 
 
 # ===========================================================================
-# DNS name encoding / decoding (shared)
+# DNS name encoding / decoding
 # ===========================================================================
 def _skip_name(data: bytes, off: int) -> int:
     for _ in range(128):
@@ -136,24 +118,12 @@ def _read_name(data: bytes, off: int) -> Tuple[Optional[str], int]:
 # mDNS passive listener
 # ===========================================================================
 def _parse_mdns(data: bytes, src_ip: str) -> None:
-    """
-    Parse an mDNS packet — BOTH queries and responses.
-
-    Most home-LAN mDNS traffic is queries. Devices ask "who has
-    _googlecast._tcp.local?" constantly, and the service name in the
-    question is enough to fingerprint the asking IP.
-
-    Additionally, some devices append their own hostname as an A record in
-    the ADDITIONAL section of a query. We capture that too.
-    """
     try:
         if len(data) < 12:
             return
-
         flags, qd, an, ns, ar = struct.unpack(">HHHHH", data[2:12])
         off = 12
 
-        # ---- QUESTIONS (present in both queries and responses) ----
         for _ in range(qd):
             name, off = _read_name(data, off)
             if off + 4 > len(data):
@@ -163,7 +133,6 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
             if name and qtype == 12:
                 _record_service(src_ip, name)
 
-        # ---- ANSWER + AUTHORITY + ADDITIONAL records ----
         for _ in range(an + ns + ar):
             if off >= len(data):
                 return
@@ -178,34 +147,25 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
                 return
 
             if rtype == 1 and rdlen == 4:
-                # A record — "<name> is at <ip>"
                 ip = ".".join(str(b) for b in data[rdata:end])
                 if ip == src_ip and name:
                     _record_name(src_ip, name)
-
             elif rtype == 12:
-                # PTR — service announcement
                 target, _ = _read_name(data, rdata)
                 if target:
                     _record_service(src_ip, target)
                     if "in-addr.arpa" in (name or "").lower():
                         _record_name(src_ip, target)
-
             elif rtype == 33 and rdlen >= 6:
-                # SRV — "<target>.local is serving <service>"
                 target, _ = _read_name(data, rdata + 6)
                 if target:
                     _record_name(src_ip, target)
-
             elif rtype == 16:
-                # TXT — look for fn= / name= / model= fields
                 try:
                     i = rdata
                     while i < end:
-                        ln = data[i]
-                        i += 1
-                        if i + ln > end:
-                            break
+                        ln = data[i]; i += 1
+                        if i + ln > end: break
                         entry = data[i:i + ln].decode("utf-8", errors="ignore")
                         i += ln
                         m = re.match(r"^(fn|name|model|md)=(.+)$", entry, re.IGNORECASE)
@@ -215,9 +175,7 @@ def _parse_mdns(data: bytes, src_ip: str) -> None:
                                 _record_name(src_ip, val)
                 except Exception:
                     pass
-
             off = end
-
     except Exception:
         pass
 
@@ -231,29 +189,23 @@ def mdns_listen(duration: float = 12.0) -> None:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         except Exception:
             pass
-
         try:
             sock.bind(("", 5353))
         except OSError as e:
             with _passive_lock:
                 _passive_stats["bind_error"] = f"{e.__class__.__name__}: {e}"
             log.warning("mDNS bind failed on UDP 5353: %s", e)
-            log.warning("If avahi-daemon is running, stop it:")
-            log.warning("  sudo systemctl stop avahi-daemon.socket avahi-daemon.service")
+            log.warning("Stop avahi if running: sudo systemctl stop avahi-daemon")
             return
-
         mreq = struct.pack("4sl", socket.inet_aton("224.0.0.251"), socket.INADDR_ANY)
         try:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         except OSError as e:
             with _passive_lock:
                 _passive_stats["bind_error"] = f"multicast join failed: {e}"
-            log.warning("mDNS multicast join failed: %s", e)
             return
-
         with _passive_lock:
             _passive_stats["started"] = True
-
         sock.settimeout(0.5)
         end_time = time.time() + duration
         while time.time() < end_time:
@@ -270,14 +222,12 @@ def mdns_listen(duration: float = 12.0) -> None:
         log.warning("mdns_listen fatal: %s", e)
     finally:
         if sock:
-            try:
-                sock.close()
-            except Exception:
-                pass
+            try: sock.close()
+            except Exception: pass
 
 
 # ===========================================================================
-# Active queries
+# Active mDNS / LLMNR / NetBIOS / DNS
 # ===========================================================================
 def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
     try:
@@ -287,7 +237,6 @@ def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
             qname += bytes([len(label)]) + label.encode()
         qname += b"\x00"
         packet = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0) + qname + struct.pack(">HH", 12, 1)
-
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
         try:
@@ -295,7 +244,6 @@ def _ptr_query(ip: str, mcast: str, port: int, timeout: float) -> Optional[str]:
             data, _ = s.recvfrom(4096)
         finally:
             s.close()
-
         an = struct.unpack(">H", data[6:8])[0] if len(data) >= 8 else 0
         if an == 0:
             return None
@@ -336,9 +284,7 @@ def query_llmnr(ip: str, timeout: float = 0.6) -> Optional[str]:
 
 def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
     try:
-        tid = b"\xab\xcd"
-        flags = b"\x01\x00"
-        qd = b"\x00\x01"
+        tid = b"\xab\xcd"; flags = b"\x01\x00"; qd = b"\x00\x01"
         rest = b"\x00\x00\x00\x00\x00\x00"
         name = b"*" + b" " * 15
         enc = bytearray()
@@ -346,7 +292,6 @@ def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
             enc.append(((name[i] - 0x41) & 0x0F) << 4 | ((name[i + 1] - 0x41) & 0x0F))
         qname = bytes([32]) + bytes(enc) + b"\x00"
         packet = tid + flags + qd + rest + qname + b"\x00\x21" + b"\x00\x01"
-
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(timeout)
         try:
@@ -354,7 +299,6 @@ def query_netbios(ip: str, timeout: float = 0.6) -> Optional[str]:
             data, _ = s.recvfrom(2048)
         finally:
             s.close()
-
         for i in range(len(data) - 18):
             chunk = data[i:i + 16]
             if chunk[15] == 0x00:
@@ -380,42 +324,119 @@ def query_reverse_dns(ip: str, timeout: float = 0.5) -> Optional[str]:
 
 
 # ===========================================================================
-# Service → label mapping
+# SSDP / UPnP — finds smart TVs, consoles, Chromecasts, routers
+# ===========================================================================
+def query_ssdp_all(timeout: float = 2.5) -> None:
+    """Broadcast SSDP M-SEARCH and record replies in the passive cache."""
+    try:
+        msg = (
+            "M-SEARCH * HTTP/1.1\r\n"
+            "HOST: 239.255.255.250:1900\r\n"
+            "MAN: \"ssdp:discover\"\r\n"
+            "MX: 2\r\n"
+            "ST: ssdp:all\r\n"
+            "USER-AGENT: NetScope/1.0 UPnP/1.0\r\n"
+            "\r\n"
+        ).encode()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        except Exception:
+            pass
+        sock.settimeout(0.6)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        try:
+            sock.sendto(msg, ("239.255.255.250", 1900))
+        except Exception:
+            pass
+
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                data, addr = sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except Exception:
+                continue
+            src_ip = addr[0]
+            text = data.decode("latin-1", errors="ignore")
+            server = st = usn = location = ""
+            for line in text.splitlines():
+                low = line.strip().lower()
+                if low.startswith("server:"):
+                    server = line.split(":", 1)[1].strip()
+                elif low.startswith("st:"):
+                    st = line.split(":", 1)[1].strip()
+                elif low.startswith("usn:"):
+                    usn = line.split(":", 1)[1].strip()
+                elif low.startswith("location:"):
+                    location = line.split(":", 1)[1].strip()
+            label = _label_from_ssdp(server, st, usn, location)
+            if label:
+                _record_name(src_ip, label)
+            if st:
+                _record_service(src_ip, st)
+        try: sock.close()
+        except Exception: pass
+    except Exception:
+        pass
+
+
+def _label_from_ssdp(server: str, st: str, usn: str, location: str) -> Optional[str]:
+    s = (server + " " + st + " " + usn + " " + location).lower()
+    if "samsung" in s and ("tv" in s or "dtv" in s): return "Samsung TV"
+    if "roku" in s: return "Roku TV"
+    if "google cast" in s or "chromecast" in s: return "Chromecast"
+    if "androidtv" in s or "android tv" in s or "googletv" in s: return "Android TV"
+    if "bravia" in s or ("sony" in s and "tv" in s): return "Sony TV"
+    if "lge" in s or "webos" in s: return "LG TV"
+    if "philips" in s and "tv" in s: return "Philips TV"
+    if "hisense" in s: return "Hisense TV"
+    if "tcl" in s: return "TCL TV"
+    if "firetv" in s: return "Fire TV"
+    if "appletv" in s or "apple tv" in s: return "Apple TV"
+    if "sonos" in s: return "Sonos Speaker"
+    if "xbox" in s: return "Xbox"
+    if "playstation" in s: return "PlayStation"
+    if "nintendo" in s: return "Nintendo Switch"
+    if "printer" in s or "ipp" in s: return "Printer"
+    if "synology" in s: return "Synology NAS"
+    if "qnap" in s: return "QNAP NAS"
+    return None
+
+
+# ===========================================================================
+# Service → label
 # ===========================================================================
 def label_from_services(services: List[str]) -> Optional[str]:
-    """
-    Turn mDNS service strings into a friendly device label.
-    Uses evidence the device itself broadcast — never invents a name.
-    """
     svc = " ".join(services).lower()
 
-    # Google / Android
-    if "_googlecast" in svc:
-        return "Chromecast"
+    # TVs first — they're the most commonly misclassified
     if "_androidtvremote2" in svc or "_androidtvremote" in svc:
         return "Android TV"
-    if "_googlezone" in svc:
-        return "Google Home"
+    if "_googlecast" in svc:
+        return "Chromecast"
+    if "_mediaremotetv" in svc or "_airport" in svc:
+        return "TV"
+    if "_raop" in svc and "_airplay" in svc:
+        return "TV"
 
     # Apple
     if "_companion-link" in svc or "_apple-mobdev2" in svc:
         return "iPhone"
-    if "_airplay" in svc and "_raop" in svc:
-        return "Apple TV"
     if "_raop" in svc:
         return "AirPlay Speaker"
     if "_airplay" in svc:
-        return "AirPlay Device"
+        return "Apple Device"
     if "_homekit" in svc or "_hap._tcp" in svc:
         return "HomeKit Accessory"
     if "_rdlink" in svc or "_sleep-proxy" in svc:
         return "Apple Device"
 
     # Amazon
-    if "_amzn-wplay" in svc or "_amazonecho" in svc:
+    if "_amzn-wplay" in svc or "_amazonecho" in svc or "_amzn-alexa" in svc:
         return "Amazon Echo"
-    if "_amzn-alexa" in svc:
-        return "Amazon Device"
 
     # Printers
     if "_ipp" in svc or "_pdl-datastream" in svc or "_printer" in svc:
@@ -423,13 +444,11 @@ def label_from_services(services: List[str]) -> Optional[str]:
     if "_scanner" in svc:
         return "Scanner"
 
-    # Media / speakers
+    # Speakers
     if "_spotify-connect" in svc:
         return "Speaker"
     if "_sonos" in svc:
         return "Sonos Speaker"
-    if "_mediaremotetv" in svc:
-        return "Smart TV"
 
     # Smart home
     if "_matter" in svc or "_matterc" in svc:
@@ -449,33 +468,39 @@ def label_from_services(services: List[str]) -> Optional[str]:
 
 
 # ===========================================================================
-# Public: resolve one IP using every source
+# Service enumeration (wakes silent phones)
+# ===========================================================================
+def query_mdns_service_enum(timeout: float = 1.5) -> None:
+    """Ask the network "what services exist?" — every mDNS device responds."""
+    try:
+        qname = b""
+        for label in ["_services", "_dns-sd", "_udp", "local"]:
+            qname += bytes([len(label)]) + label.encode()
+        qname += b"\x00"
+        packet = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0)
+        packet += qname + struct.pack(">HH", 12, 1)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(timeout)
+        try:
+            s.sendto(packet, ("224.0.0.251", 5353))
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+
+# ===========================================================================
+# resolve()
 # ===========================================================================
 def resolve(ip: str, local_ip: Optional[str] = None,
             local_name: Optional[str] = None) -> Dict:
-    """
-    Returns:
-      {
-        "hostname": str | None,
-        "services": [str],
-        "source":   str,
-        "trace":    {mdns_passive, mdns_active, netbios, llmnr, dns, local}
-      }
-    """
-    trace = {
-        "mdns_passive": False,
-        "mdns_active": False,
-        "netbios": False,
-        "llmnr": False,
-        "dns": False,
-        "local": False,
-    }
+    trace = {"mdns_passive": False, "mdns_active": False, "netbios": False,
+             "llmnr": False, "dns": False, "local": False}
 
     if local_ip and ip == local_ip and local_name:
         trace["local"] = True
         return {"hostname": local_name, "services": [], "source": "local", "trace": trace}
 
-    # 1. Passive mDNS cache
     with _passive_lock:
         entry = _passive.get(ip)
     services: List[str] = []
@@ -488,25 +513,21 @@ def resolve(ip: str, local_ip: Optional[str] = None,
             return {"hostname": candidates[0], "services": services,
                     "source": "mdns-passive", "trace": trace}
 
-    # 2. Active mDNS
     n = query_mdns_active(ip)
     if n:
         trace["mdns_active"] = True
         return {"hostname": n, "services": services, "source": "mdns-active", "trace": trace}
 
-    # 3. NetBIOS
     n = query_netbios(ip)
     if n:
         trace["netbios"] = True
         return {"hostname": n, "services": services, "source": "netbios", "trace": trace}
 
-    # 4. LLMNR
     n = query_llmnr(ip)
     if n:
         trace["llmnr"] = True
         return {"hostname": n, "services": services, "source": "llmnr", "trace": trace}
 
-    # 5. Reverse DNS
     n = query_reverse_dns(ip)
     if n:
         trace["dns"] = True
@@ -516,15 +537,10 @@ def resolve(ip: str, local_ip: Optional[str] = None,
 
 
 # ===========================================================================
-# Device type from name + services + vendor
+# guess_type — services → hostname → vendor
 # ===========================================================================
-def guess_type(name: Optional[str], services: List[str], vendor: str, is_gateway: bool, is_self: bool) -> str:
-    """
-    Determine the device type. Priority order:
-      1. What the device itself told us (mDNS services).
-      2. What its hostname looks like.
-      3. What its MAC vendor suggests.
-    """
+def guess_type(name: Optional[str], services: List[str], vendor: str,
+               is_gateway: bool, is_self: bool) -> str:
     if is_self:
         return "This Device"
     if is_gateway:
@@ -534,184 +550,113 @@ def guess_type(name: Optional[str], services: List[str], vendor: str, is_gateway
     v = (vendor or "").lower()
     svc = " ".join(services).lower()
 
-    # =================================================================
-    # 1. Service evidence — the device itself says what it is
-    # =================================================================
-    # Google / Chromecast / Android TV
-    if "_googlecast" in svc or "googlecast" in n:
-        return "Chromecast"
-    if "_androidtvremote2" in svc or "_androidtvremote" in svc or "androidtv" in n:
+    # ---- 1. SERVICES FIRST ----
+    if "_androidtvremote2" in svc or "_androidtvremote" in svc:
         return "Android TV"
-    if "_googlezone" in svc:
-        return "Smart Speaker"
-    if "_googleprint" in svc:
-        return "Printer"
-
-    # Apple
-    if "_companion-link" in svc or "_apple-mobdev2" in svc or "iphone" in n:
-        return "Phone"
-    if "_airplay" in svc and "_raop" in svc:
+    if "_googlecast" in svc:
+        if any(k in n for k in ("tv", "shield", "bravia", "googletv")):
+            return "Android TV"
+        return "Chromecast"
+    if "_mediaremotetv" in svc or "_airport" in svc:
         return "TV"
-    if "_raop" in svc:
+    if "_raop" in svc and "_airplay" in svc:
+        return "TV"
+    if "_sonos" in svc:
         return "Smart Speaker"
-    if "_airplay" in svc:
+    if "_spotify-connect" in svc:
+        return "Smart Speaker"
+    if "_airplay" in svc and "_raop" not in svc:
         return "Apple Device"
+    if "_companion-link" in svc or "_apple-mobdev2" in svc:
+        return "Phone"
     if "_homekit" in svc or "_hap._tcp" in svc:
         return "Smart Home"
-    if "_rdlink" in svc or "_sleep-proxy" in svc:
-        return "Apple Device"
-    if "_afpovertcp" in svc or "_smb" in svc and "mac" in n:
-        return "Mac"
-
-    # Amazon
-    if "_amzn-wplay" in svc or "_amazonecho" in svc or "echo" in n or "alexa" in n:
-        return "Smart Speaker"
-    if "_amzn-alexa" in svc:
-        return "Smart Speaker"
-
-    # Printers
-    if "_ipp" in svc or "_pdl-datastream" in svc or "_printer" in svc or "_uscan" in svc:
+    if "_ipp" in svc or "_pdl-datastream" in svc or "_printer" in svc:
         return "Printer"
     if "_scanner" in svc:
         return "Scanner"
-
-    # Media / speakers
-    if "_spotify-connect" in svc:
+    if "_amzn-wplay" in svc or "_amazonecho" in svc or "_amzn-alexa" in svc:
         return "Smart Speaker"
-    if "_sonos" in svc:
-        return "Smart Speaker"
-    if "_mediaremotetv" in svc or "_airport" in svc or "appletv" in n:
-        return "TV"
-    if "_sleep-proxy" in svc and "_airplay" not in svc:
-        return "Apple Device"
-
-    # Smart home / IoT
-    if "_matter" in svc or "_matterc" in svc:
+    if "_matter" in svc or "_matterc" in svc or "_tuya" in svc:
         return "Smart Home"
-    if "_tuya" in svc:
-        return "Smart Home"
-    if "_hue" in svc or "philips" in n:
-        return "Smart Home"
-
-    # Computers
     if "_smb" in svc or "_workstation" in svc:
         if "mac" in n or "imac" in n or "macbook" in n:
             return "Mac"
         return "Computer"
     if "_ssh" in svc or "_sftp-ssh" in svc:
         return "Server"
-    if "_rfb" in svc:  # VNC
-        return "Computer"
 
-    # =================================================================
-    # 2. Hostname evidence
-    # =================================================================
-    # Phones
-    if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
-                            "poco", "oneplus", "moto", "xiaomi", "huawei",
-                            "realme", "oppo", "vivo", "nothing",
-                            "-phone", "phone-", "moto-")):
-        return "Phone"
-    if n.startswith("android_"):
-        return "Phone"
-    if "iphone" in n or "ipad" in n:
-        return "Tablet" if "ipad" in n else "Phone"
-
-    # Tablets
-    if any(k in n for k in ("ipad", "tablet", "tab-", "tab_", "galaxy-tab")):
-        return "Tablet"
-
-    # Macs
-    if any(k in n for k in ("macbook", "imac", "mac-mini", "mac-mini-",
-                            "mac-pro", "mac-studio", "air")):
-        if "mac" in n:
-            return "Mac"
-
-    # Laptops / desktops
-    if any(k in n for k in ("laptop", "notebook", "thinkpad", "inspiron",
-                            "latitude", "xps", "surface", "vivobook",
-                            "ideapad", "pavilion", "probook", "elitebook")):
-        return "Laptop"
-    if any(k in n for k in ("desktop", "pc-", "-pc", "workstation",
-                            "precision", "optiplex", "thinkcentre")):
-        return "Computer"
-
-    # Windows-specific
-    if n.startswith("desktop-") or n.startswith("win-"):
-        return "Computer"
-
-    # Printers
-    if any(k in n for k in ("printer", "hp-", "canon", "epson", "brother",
-                            "lexmark", "xerox", "officejet", "deskjet",
-                            "laserjet", "pixma", "workforce")):
-        return "Printer"
-
-    # TVs
-    if any(k in n for k in ("tv", "roku", "firestick", "fire-tv", "bravia",
-                            "webos", "tizen", "appletv", "chromecast",
-                            "shield", "lgtv", "samsungtv", "vizio")):
+    # ---- 2. TV NAMES (checked before generic Android→Phone) ----
+    if any(k in n for k in ("samsung tv", "sony tv", "lg tv", "roku tv",
+                            "fire tv", "philips tv", "tcl tv", "hisense tv",
+                            "android tv", "google tv", "apple tv", "bravia",
+                            "shield", "smarttv", "webos", "tizen")):
         return "TV"
-
-    # NAS
-    if any(k in n for k in ("nas", "synology", "diskstation", "qnap",
-                            "freenas", "truenas", "readynas")):
-        return "NAS"
-
-    # Speakers
-    if any(k in n for k in ("echo", "alexa", "nest", "homepod", "sonos",
-                            "harman", "bose", "jbl", "soundbar")):
+    if " tv" in n or n.endswith("tv"):
+        return "TV"
+    if "chromecast" in n:
+        return "Chromecast"
+    if "roku" in n:
+        return "Roku TV"
+    if "xbox" in n:
+        return "Xbox"
+    if "playstation" in n or "ps4" in n or "ps5" in n:
+        return "PlayStation"
+    if "nintendo" in n or "switch" in n:
+        return "Nintendo Switch"
+    if "sonos" in n:
         return "Smart Speaker"
 
-    # Consoles
-    if any(k in n for k in ("xbox", "playstation", "ps4", "ps5", "nintendo",
-                            "switch")):
-        return "Console"
-
-    # Cameras
-    if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua", "reolink",
-                            "wyze", "arlo", "ring-")):
+    # ---- 3. HOSTNAME ----
+    if n.startswith("android_"):
+        return "Phone"
+    if any(k in n for k in ("iphone", "android", "galaxy", "pixel", "redmi",
+                            "poco", "oneplus", "moto", "xiaomi", "huawei",
+                            "realme", "oppo", "vivo")):
+        return "Phone"
+    if "ipad" in n or "tablet" in n or "tab-" in n:
+        return "Tablet"
+    if any(k in n for k in ("macbook", "imac", "mac-mini", "mac-pro")):
+        return "Mac"
+    if any(k in n for k in ("laptop", "notebook", "thinkpad", "inspiron",
+                            "latitude", "xps", "surface", "vivobook",
+                            "ideapad", "pavilion")):
+        return "Laptop"
+    if any(k in n for k in ("desktop", "pc-", "-pc", "workstation")) or n.startswith("desktop-"):
+        return "Computer"
+    if any(k in n for k in ("printer", "hp-", "canon", "epson", "brother")):
+        return "Printer"
+    if any(k in n for k in ("nas", "synology", "qnap", "diskstation")):
+        return "NAS"
+    if any(k in n for k in ("echo", "alexa", "nest", "homepod")):
+        return "Smart Speaker"
+    if any(k in n for k in ("camera", "ipcam", "hikvision", "dahua")):
         return "Camera"
-
-    # Routers / network gear
-    if any(k in n for k in ("router", "gateway", "fritz", "openwrt", "unifi",
-                            "ubiquiti", "mikrotik", "edgerouter", "orbi",
-                            "velop", "deco")):
+    if any(k in n for k in ("router", "gateway", "fritz", "openwrt", "unifi")):
         return "Router"
 
-    # =================================================================
-    # 3. Vendor evidence (weakest — only when nothing else matched)
-    # =================================================================
+    # ---- 4. VENDOR ----
     if "apple" in v:
         return "Apple Device"
     if "raspberry" in v:
         return "Raspberry Pi"
-    if any(x in v for x in ("vmware", "virtualbox", "qemu", "hyper-v", "xen")):
+    if any(x in v for x in ("vmware", "virtualbox", "qemu", "hyper-v")):
         return "Virtual Machine"
-    if "intel" in v or "realtek" in v or "broadcom" in v:
+    if any(x in v for x in ("hp", "dell", "lenovo", "asus", "intel", "realtek")):
         return "Computer"
-    if any(x in v for x in ("hp", "dell", "lenovo", "asus", "acer",
-                            "msi", "toshiba", "samsung electronics")):
-        return "Computer"
-    if any(x in v for x in ("cisco", "netgear", "tp-link", "d-link",
-                            "ubiquiti", "mikrotik", "aruba", "ruckus")):
+    if any(x in v for x in ("cisco", "netgear", "tp-link", "d-link")):
         return "Network Device"
-    if any(x in v for x in ("epson", "canon", "brother", "lexmark", "xerox")):
+    if any(x in v for x in ("epson", "canon", "brother", "lexmark")):
         return "Printer"
-    if any(x in v for x in ("sonos", "bose", "harman", "jbl", "sony")):
-        return "Smart Speaker"
-    if "samsung" in v or "xiaomi" in v or "huawei" in v or "oneplus" in v:
+    if "samsung" in v or "xiaomi" in v or "huawei" in v:
         return "Phone"
     if "google" in v or "nest" in v:
         return "Chromecast"
     if "amazon" in v:
         return "Smart Speaker"
-    if "lg" in v or "philips" in v or "vizio" in v:
+    if any(x in v for x in ("sonos", "bose", "harman", "jbl")):
+        return "Smart Speaker"
+    if "lg" in v or "philips" in v:
         return "TV"
-    if "hikvision" in v or "dahua" in v or "reolink" in v:
-        return "Camera"
-    if "nintendo" in v:
-        return "Console"
-    if "microsoft" in v:
-        return "Computer"
 
     return "Unknown"

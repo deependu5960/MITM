@@ -14,14 +14,12 @@ from typing import Dict, List, Optional, Set
 from . import hostname as hostname_mod
 from . import network, vendor
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("discovery")
-
 
 _lock = threading.Lock()
 _thread: Optional[threading.Thread] = None
@@ -62,9 +60,6 @@ def _set(stage: str = None, progress: int = None) -> None:
             _state["progress"] = progress
 
 
-# ---------------------------------------------------------------------------
-# Ping + ARP
-# ---------------------------------------------------------------------------
 def _ping(ip: str, timeout_ms: int = 700) -> bool:
     system = platform.system().lower()
     try:
@@ -107,9 +102,6 @@ def _arp_table() -> Dict[str, str]:
     return out_map
 
 
-# ---------------------------------------------------------------------------
-# The scan
-# ---------------------------------------------------------------------------
 def _run_scan() -> None:
     try:
         hostname_mod.clear_passive()
@@ -133,18 +125,30 @@ def _run_scan() -> None:
 
         hosts = network.enumerate_hosts(cidr)
 
-        # ---- Stage 1: passive mDNS listener (background) ----
+        # ---- Start passive mDNS listener ----
         _set("Listening for device broadcasts", 10)
         listener = threading.Thread(
             target=hostname_mod.mdns_listen, kwargs={"duration": 12.0}, daemon=True,
         )
         listener.start()
 
+        # ---- Wake silent devices ----
+        try:
+            hostname_mod.query_mdns_service_enum(timeout=1.5)
+        except Exception:
+            pass
+
+        # ---- Ask UPnP devices (TVs, consoles) to identify themselves ----
+        try:
+            hostname_mod.query_ssdp_all(timeout=2.5)
+        except Exception:
+            pass
+
         log.info("=" * 66)
         log.info("Scan started — network %s  local IP %s", cidr, local_ip)
         log.info("=" * 66)
 
-        # ---- Stage 2: ping sweep ----
+        # ---- Ping sweep ----
         _set("Pinging hosts", 25)
         live: List[str] = []
         with ThreadPoolExecutor(max_workers=96) as ex:
@@ -153,7 +157,7 @@ def _run_scan() -> None:
                     live.append(ip)
         log.info("Ping sweep: %d/%d hosts responded", len(live), len(hosts))
 
-        # ---- Stage 3: send active mDNS probes to prod silent devices ----
+        # ---- Active mDNS probes ----
         _set("Probing devices", 45)
 
         def _probe(ip: str) -> None:
@@ -165,25 +169,22 @@ def _run_scan() -> None:
         with ThreadPoolExecutor(max_workers=64) as ex:
             list(ex.map(_probe, hosts))
 
-        # ---- Stage 4: wait for passive listener ----
+        # ---- Wait for passive listener ----
         _set("Collecting broadcasts", 60)
         listener.join(timeout=14.0)
 
         stats = hostname_mod.passive_stats()
         log.info("mDNS passive: packets=%d records=%d services=%d started=%s bind_error=%s",
-                 stats.get("packets", 0),
-                 stats.get("records", 0),
-                 stats.get("services", 0),
-                 stats.get("started", False),
+                 stats.get("packets", 0), stats.get("records", 0),
+                 stats.get("services", 0), stats.get("started", False),
                  stats.get("bind_error"))
 
-        # ---- Stage 5: read ARP table ----
+        # ---- ARP ----
         _set("Reading ARP cache", 70)
         time.sleep(0.4)
         arp = _arp_table()
         log.info("ARP table: %d entries", len(arp))
 
-        # ---- Merge all IP sources ----
         all_ips: Set[str] = set(live)
         for ip in arp:
             try:
@@ -206,14 +207,13 @@ def _run_scan() -> None:
         except Exception:
             gateway = None
 
-        # ---- Stage 6: resolve hostname for each device ----
+        # ---- Resolve ----
         _set("Resolving hostnames", 85)
 
         def enrich(ip: str) -> Dict:
             mac = arp.get(ip)
             vend = vendor.lookup(mac)
-            if vendor.is_randomized(mac) and vend == "Unknown":
-                vend = "Randomized MAC"
+            randomized = vendor.is_randomized(mac)
 
             info = hostname_mod.resolve(ip, local_ip=local_ip, local_name=local_name)
             name = info["hostname"]
@@ -221,9 +221,7 @@ def _run_scan() -> None:
             source = info["source"]
             trace = info.get("trace", {})
 
-            # If no hostname but we do have service evidence, use a
-            # service-derived category as the display name. This is
-            # not a fake hostname — it's what the device itself broadcast.
+            # Fallback name from services if no hostname
             if not name and services:
                 label = hostname_mod.label_from_services(services)
                 if label:
@@ -235,22 +233,24 @@ def _run_scan() -> None:
                 is_gateway=(ip == gateway), is_self=(ip == local_ip),
             )
 
-            trace_str = " ".join(
-                f"{k}={'YES' if v else 'no'}" for k, v in trace.items()
-            )
+            # Never show "Randomized MAC" as a vendor
+            display_vendor = vend if vend and vend != "Randomized MAC" else None
+
+            trace_str = " ".join(f"{k}={'YES' if v else 'no'}" for k, v in trace.items())
             if name:
-                log.info("  %-15s  ARP=%-17s  source=%-13s  name=%s",
-                         ip, mac or "—", source, name)
+                log.info("  %-15s  ARP=%-17s  source=%-13s  name=%s  type=%s",
+                         ip, mac or "—", source, name, dev_type)
             else:
-                log.warning("  %-15s  ARP=%-17s  NO NAME  vendor=%s  type=%s",
-                            ip, mac or "—", vend, dev_type)
+                log.warning("  %-15s  ARP=%-17s  NO NAME  type=%s  services=%s",
+                            ip, mac or "—", dev_type, ",".join(services[:3]) or "none")
             log.info("      trace: %s", trace_str)
 
             return {
                 "ip": ip,
                 "mac": mac,
                 "hostname": name,
-                "vendor": vend,
+                "vendor": display_vendor,
+                "randomized_mac": randomized,
                 "type": dev_type,
                 "services": services,
                 "name_source": source,

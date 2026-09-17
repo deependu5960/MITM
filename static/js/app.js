@@ -19,7 +19,7 @@
   const $$ = (s) => document.querySelectorAll(s);
 
   // ==========================================================================
-  // Icon map — one entry per device type the backend can return
+  // Icons — one entry per device type the backend can return
   // ==========================================================================
   const ICON = {
     Phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/>',
@@ -32,8 +32,17 @@
     Router: '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
     "Network Device": '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
     TV: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
-    Chromecast: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M5 12a7 7 0 0 1 7-7"/>',
     "Android TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Samsung TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Sony TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "LG TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Roku TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Fire TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Apple TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Philips TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "Hisense TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    "TCL TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
+    Chromecast: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M5 12a7 7 0 0 1 7-7"/>',
     Printer: '<path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8"/><path d="M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/>',
     Scanner: '<rect x="3" y="8" width="18" height="10" rx="2"/><path d="M7 8V4h10v4"/><circle cx="12" cy="13" r="2"/>',
     "Smart Speaker": '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
@@ -42,7 +51,12 @@
     "AirPlay Speaker": '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
     "Apple Device": '<path d="M16 3c-1 0-2 .5-3 1.5S11 6.5 11 8c0 1.5 1 3 2 4s2.5 1.5 3 1.5c.7 0 1.3-.3 2-.7.6-.4 1-.4 1.5 0 .5.3 1.2.7 2 .7.5 0 1-.1 1.5-.4C24 12 25 9.5 25 7c0-.5-.4-1-1-1-.7 0-1.5.2-2 .8"/>',
     NAS: '<rect x="3" y="6" width="18" height="4" rx="1"/><rect x="3" y="14" width="18" height="4" rx="1"/><circle cx="7" cy="8" r=".7"/><circle cx="7" cy="16" r=".7"/>',
+    "Synology NAS": '<rect x="3" y="6" width="18" height="4" rx="1"/><rect x="3" y="14" width="18" height="4" rx="1"/><circle cx="7" cy="8" r=".7"/><circle cx="7" cy="16" r=".7"/>',
+    "QNAP NAS": '<rect x="3" y="6" width="18" height="4" rx="1"/><rect x="3" y="14" width="18" height="4" rx="1"/><circle cx="7" cy="8" r=".7"/><circle cx="7" cy="16" r=".7"/>',
     Console: '<rect x="2" y="8" width="20" height="10" rx="3"/><circle cx="8" cy="13" r="1.4"/><circle cx="16" cy="13" r="1.4"/>',
+    Xbox: '<rect x="2" y="8" width="20" height="10" rx="3"/><circle cx="8" cy="13" r="1.4"/><circle cx="16" cy="13" r="1.4"/>',
+    PlayStation: '<rect x="2" y="8" width="20" height="10" rx="3"/><circle cx="8" cy="13" r="1.4"/><circle cx="16" cy="13" r="1.4"/>',
+    "Nintendo Switch": '<rect x="2" y="8" width="20" height="10" rx="3"/><circle cx="8" cy="13" r="1.4"/><circle cx="16" cy="13" r="1.4"/>',
     Camera: '<path d="M2 7h3l2-3h10l2 3h3v13H2z"/><circle cx="12" cy="13" r="4"/>',
     "Smart Home": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
     "HomeKit Accessory": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
@@ -57,7 +71,7 @@
   };
 
   // ==========================================================================
-  // Small helpers
+  // Helpers
   // ==========================================================================
   const esc = (s) => (s === null || s === undefined) ? "" :
     String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -103,7 +117,7 @@
   }
 
   // ==========================================================================
-  // Custom dropdown component (replaces ugly native <select>)
+  // Custom dropdown
   // ==========================================================================
   function closeAllDropdowns() {
     document.querySelectorAll(".dropdown-menu").forEach((m) => m.classList.add("hidden"));
@@ -125,8 +139,7 @@
     menu.innerHTML = items.map((item) => {
       const active = item.value === current ? " active" : "";
       const countHtml = typeof item.count === "number"
-        ? `<span class="count">${item.count}</span>`
-        : "";
+        ? `<span class="count">${item.count}</span>` : "";
       return `<div class="dropdown-item${active}" data-value="${escAttr(item.value)}">
                 <span>${esc(item.label)}</span>
                 ${countHtml}
@@ -209,11 +222,9 @@
       else if (state.error) dot.className = "dot error";
       else dot.className = "dot online";
     }
-
     $("#top-net").textContent = iface.ip ? `${iface.name || "iface"} · ${iface.ip}` : "No network";
     $("#top-count").textContent = state.devices.length;
     $("#top-time").textContent = state.lastScan ? fmtTime(state.lastScan) : "never";
-
     const btn = $("#btn-scan");
     if (btn) btn.disabled = state.scanning;
     $("#btn-scan-label").textContent = state.scanning ? "Scanning" : "Scan";
@@ -223,7 +234,6 @@
     const self = state.devices.find((d) => d.is_self);
     const router = state.devices.find((d) => d.is_gateway);
     const iface = state.iface || {};
-
     $("#sum-self").textContent = (self && (self.hostname || self.ip)) || state.localName || "—";
     $("#sum-router").textContent = (router && (router.hostname || router.ip)) || "—";
     $("#sum-cidr").textContent = iface.cidr || "—";
@@ -241,24 +251,18 @@
       if (b === "Unknown") return -1;
       return a.localeCompare(b);
     });
-
     const items = [
       { value: "all", label: "All types", count: state.devices.length },
       ...types.map((t) => ({ value: t, label: t, count: counts[t] })),
     ];
-
     if (!items.some((i) => i.value === state.filterType)) {
       state.filterType = "all";
     }
-
     buildDropdown(
       { trigger: "filter-type-trigger", menu: "filter-type-menu", label: "filter-type-label" },
       items,
       state.filterType,
-      (val) => {
-        state.filterType = val;
-        renderGroups();
-      }
+      (val) => { state.filterType = val; renderGroups(); }
     );
   }
 
@@ -278,8 +282,7 @@
     else if (d.is_gateway) { primaryTag = "Router"; primaryClass = "gateway"; }
 
     const vendorChip = d.vendor
-      ? `<span class="vendor-chip">${esc(d.vendor)}</span>`
-      : "";
+      ? `<span class="vendor-chip">${esc(d.vendor)}</span>` : "";
 
     card.innerHTML = `
       <div class="device-head">
@@ -489,10 +492,8 @@
   function wire() {
     const landingBtn = $("#landing-scan");
     if (landingBtn) landingBtn.addEventListener("click", () => startScan(true));
-
     const scanBtn = $("#btn-scan");
     if (scanBtn) scanBtn.addEventListener("click", () => startScan(false));
-
     const refreshBtn = $("#btn-refresh");
     if (refreshBtn) {
       refreshBtn.addEventListener("click", async () => {
@@ -501,7 +502,6 @@
         toast("Refreshed", "ok");
       });
     }
-
     const searchInput = $("#search");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
@@ -509,7 +509,6 @@
         renderGroups();
       });
     }
-
     $$("#modal [data-close]").forEach((el) => el.addEventListener("click", closeModal));
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
   }
