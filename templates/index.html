@@ -264,6 +264,65 @@
     </main>
   </div>
 
+
+  <!-- MITM + Packet stream panel -->
+  <section class="mitm-panel hidden" id="mitm-panel">
+    <div class="mitm-header">
+      <div class="mitm-title">
+        <span class="dot" id="mitm-dot"></span>
+        <span>MITM Lab Session</span>
+        <span class="mitm-state-pill" id="mitm-state">stopped</span>
+      </div>
+      <div class="mitm-actions">
+        <button class="btn btn-ghost small" id="mitm-pause">Pause</button>
+        <button class="btn btn-ghost small" id="mitm-clear">Clear</button>
+        <button class="btn btn-danger small" id="mitm-stop">Stop MITM</button>
+      </div>
+    </div>
+
+    <div class="mitm-targets">
+      <div class="target-row"><span class="k">Target IP</span><span class="v" id="mitm-vip">—</span></div>
+      <div class="target-row"><span class="k">Target MAC</span><span class="v" id="mitm-vmac">—</span></div>
+      <div class="target-row"><span class="k">Gateway IP</span><span class="v" id="mitm-gip">—</span></div>
+      <div class="target-row"><span class="k">Gateway MAC</span><span class="v" id="mitm-gmac">—</span></div>
+      <div class="target-row"><span class="k">Interface</span><span class="v" id="mitm-iface">—</span></div>
+      <div class="target-row"><span class="k">Attacker IP</span><span class="v" id="mitm-aip">—</span></div>
+      <div class="target-row"><span class="k">Attacker MAC</span><span class="v" id="mitm-amac">—</span></div>
+    </div>
+
+    <div class="packet-filters">
+      <button class="chip active" data-filter="ALL">All</button>
+      <button class="chip" data-filter="ARP">ARP</button>
+      <button class="chip" data-filter="DNS">DNS</button>
+      <button class="chip" data-filter="TCP">TCP</button>
+      <button class="chip" data-filter="UDP">UDP</button>
+      <button class="chip" data-filter="ICMP">ICMP</button>
+      <span class="packet-count" id="packet-count">0 packets</span>
+    </div>
+
+    <div class="packet-table-wrap">
+      <table class="packet-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Source</th>
+            <th>Destination</th>
+            <th>Proto</th>
+            <th>Len</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody id="packet-tbody"></tbody>
+      </table>
+      <div class="packet-empty" id="packet-empty">
+        Waiting for packets… start a MITM session on a device.
+      </div>
+    </div>
+  </section>
+
+
+
+
   <!-- Device detail modal -->
   <div class="modal hidden" id="modal">
     <div class="modal-backdrop" data-close></div>

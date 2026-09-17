@@ -1,28 +1,38 @@
-"""NetScope — local network scanner. Flask backend."""
+"""NetScope — Flask app. Scanner + MITM lab module."""
 from __future__ import annotations
+import json
 import logging
 import threading
 import time
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, Response, jsonify, render_template, request
 
-from backend import discovery, hostname as hostname_mod, network
+from backend import discovery, network
+from backend.mitm.manager import get_manager
+from backend.mitm.stream import STREAM
+from config import CONFIG
 
-# Route Python logging to stdout so you see it in the terminal
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
+log = logging.getLogger("app")
 
 app = Flask(__name__)
 
 
+# ==========================================================================
+# HTML
+# ==========================================================================
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+# ==========================================================================
+# Scanner API (unchanged)
+# ==========================================================================
 @app.route("/api/network")
 def api_network():
     iface = network.get_primary()
@@ -68,13 +78,12 @@ def api_scan_status():
         "progress": s["progress"],
         "last_scan": s["last_scan"],
         "error": s["error"],
-        "mdns_stats": s["mdns_stats"],
     })
 
 
 @app.route("/api/debug")
 def api_debug():
-    """Shows what the resolver saw, per source."""
+    from backend import hostname as hostname_mod
     return jsonify({
         "success": True,
         "mdns_passive_stats": hostname_mod.passive_stats(),
@@ -82,6 +91,106 @@ def api_debug():
     })
 
 
+# ==========================================================================
+# MITM API
+# ==========================================================================
+@app.route("/api/mitm/status")
+def mitm_status():
+    return jsonify({"success": True, **get_manager().get_status()})
+
+
+@app.route("/api/mitm/start", methods=["POST"])
+def mitm_start():
+    body = request.get_json(silent=True) or {}
+    victim_ip = (body.get("ip") or "").strip()
+    iface = body.get("iface") or None
+    confirm = body.get("confirm") is True
+
+    if not victim_ip:
+        return jsonify({"success": False, "error": "Missing victim IP"}), 400
+
+    if CONFIG.REQUIRE_CONFIRMATION and not confirm:
+        return jsonify({
+            "success": False,
+            "error": "Confirmation required",
+        }), 400
+
+    # Lab boundary check
+    if CONFIG.LAB_SUBNETS:
+        import ipaddress
+        ok = False
+        for cidr in CONFIG.LAB_SUBNETS:
+            try:
+                if ipaddress.ip_address(victim_ip) in ipaddress.ip_network(cidr, strict=False):
+                    ok = True
+                    break
+            except ValueError:
+                continue
+        if not ok:
+            return jsonify({
+                "success": False,
+                "error": f"Target {victim_ip} is outside the configured lab subnets",
+            }), 403
+
+    # Scanner must know the device
+    device = discovery.find_device(victim_ip)
+    if not device:
+        return jsonify({
+            "success": False,
+            "error": f"Device {victim_ip} not found in the last scan. Scan first.",
+        }), 404
+
+    result = get_manager().start(victim_ip, iface=iface)
+    if not result.get("ok"):
+        return jsonify({"success": False, "error": result.get("error", "Unknown error")}), 500
+    return jsonify({"success": True, "session": result["session"]})
+
+
+@app.route("/api/mitm/stop", methods=["POST"])
+def mitm_stop():
+    return jsonify({"success": True, **get_manager().stop()})
+
+
+@app.route("/api/mitm/pause", methods=["POST"])
+def mitm_pause():
+    return jsonify({"success": True, **get_manager().pause()})
+
+
+@app.route("/api/mitm/resume", methods=["POST"])
+def mitm_resume():
+    return jsonify({"success": True, **get_manager().resume()})
+
+
+@app.route("/api/mitm/clear", methods=["POST"])
+def mitm_clear():
+    return jsonify({"success": True, **get_manager().clear_packets()})
+
+
+@app.route("/api/mitm/packets")
+def mitm_packets():
+    """Recent packets (used as fallback if SSE is unavailable)."""
+    limit = int(request.args.get("limit", "500"))
+    recent = STREAM.recent(limit=limit)
+    return jsonify({
+        "success": True,
+        "packets": [r.to_dict() for r in recent],
+        "paused": STREAM.is_paused(),
+    })
+
+
+@app.route("/api/mitm/stream")
+def mitm_stream():
+    """Server-Sent Events stream of packet records."""
+    resp = Response(STREAM.sse_stream(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Connection"] = "keep-alive"
+    return resp
+
+
+# ==========================================================================
+# Boot
+# ==========================================================================
 def _auto_scan():
     time.sleep(0.6)
     try:
@@ -92,4 +201,4 @@ def _auto_scan():
 
 if __name__ == "__main__":
     threading.Thread(target=_auto_scan, daemon=True).start()
-    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
+    app.run(host=CONFIG.HOST, port=CONFIG.PORT, debug=CONFIG.DEBUG, threaded=True)

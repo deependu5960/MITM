@@ -309,3 +309,13 @@ def start_scan() -> bool:
     _thread = threading.Thread(target=_run_scan, daemon=True)
     _thread.start()
     return True
+
+
+
+def find_device(ip: str) -> Optional[Dict]:
+    """Return the last-scan device record for an IP, or None if not found."""
+    with _lock:
+        for d in _state["devices"]:
+            if d.get("ip") == ip:
+                return dict(d)
+    return None
