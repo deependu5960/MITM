@@ -18,62 +18,58 @@
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => document.querySelectorAll(s);
 
+  // ==========================================================================
+  // Icon map — one entry per device type the backend can return
+  // ==========================================================================
   const ICON = {
-    // Phone
     Phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/>',
-    // Tablet
     Tablet: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/>',
-    // Laptop
-    Laptop: '<rect x="3" y="5" width="18" height="11" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/><line x1="2" y1="20" x2="22" y2="20"/>',
-    // Desktop / Computer / Windows PC
+    Laptop: '<rect x="3" y="5" width="18" height="11" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>',
     Computer: '<rect x="3" y="4" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>',
     "Windows PC": '<rect x="3" y="4" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>',
     "This Device": '<rect x="3" y="4" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>',
-    // Mac
     Mac: '<path d="M16 3c-1 0-2 .5-3 1.5S11 6.5 11 8c0 1.5 1 3 2 4s2.5 1.5 3 1.5c.7 0 1.3-.3 2-.7.6-.4 1-.4 1.5 0 .5.3 1.2.7 2 .7.5 0 1-.1 1.5-.4C24 12 25 9.5 25 7c0-.5-.4-1-1-1-.7 0-1.5.2-2 .8"/>',
-    // Router / Network Device
     Router: '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
     "Network Device": '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>',
-    // TV
     TV: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
-    // Chromecast / Apple TV
     Chromecast: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M5 12a7 7 0 0 1 7-7"/>',
     "Android TV": '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="m17 2-5 5-5-5"/>',
-    // Printer / Scanner
     Printer: '<path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8"/><path d="M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/>',
     Scanner: '<rect x="3" y="8" width="18" height="10" rx="2"/><path d="M7 8V4h10v4"/><circle cx="12" cy="13" r="2"/>',
-    // Speaker / Smart Speaker / Sonos / Echo
     "Smart Speaker": '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
     Speaker: '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
     "Sonos Speaker": '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
     "AirPlay Speaker": '<rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
-    // Apple family
     "Apple Device": '<path d="M16 3c-1 0-2 .5-3 1.5S11 6.5 11 8c0 1.5 1 3 2 4s2.5 1.5 3 1.5c.7 0 1.3-.3 2-.7.6-.4 1-.4 1.5 0 .5.3 1.2.7 2 .7.5 0 1-.1 1.5-.4C24 12 25 9.5 25 7c0-.5-.4-1-1-1-.7 0-1.5.2-2 .8"/>',
-    // NAS
     NAS: '<rect x="3" y="6" width="18" height="4" rx="1"/><rect x="3" y="14" width="18" height="4" rx="1"/><circle cx="7" cy="8" r=".7"/><circle cx="7" cy="16" r=".7"/>',
-    // Console
     Console: '<rect x="2" y="8" width="20" height="10" rx="3"/><circle cx="8" cy="13" r="1.4"/><circle cx="16" cy="13" r="1.4"/>',
-    // Camera
     Camera: '<path d="M2 7h3l2-3h10l2 3h3v13H2z"/><circle cx="12" cy="13" r="4"/>',
-    // Smart Home
     "Smart Home": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
     "HomeKit Accessory": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
     "Matter Device": '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
-    // Raspberry Pi / Server / Virtual Machine
     "Raspberry Pi": '<rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="12" cy="12" r="3"/>',
     Server: '<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><circle cx="7" cy="7" r=".8"/><circle cx="7" cy="17" r=".8"/>',
     "Virtual Machine": '<rect x="3" y="4" width="18" height="12" rx="2"/><rect x="6" y="16" width="12" height="4"/>',
     "Linux Device": '<rect x="3" y="4" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>',
-    // Generic
     "Mobile Device": '<rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/>',
     Device: '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
     Unknown: '<circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12" y2="17.01"/>',
   };
 
+  // ==========================================================================
+  // Small helpers
+  // ==========================================================================
   const esc = (s) => (s === null || s === undefined) ? "" :
     String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Never";
+  const escAttr = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+
+  const fmtTime = (ts) => ts
+    ? new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "Never";
+
   const fmtRel = (ts) => {
     if (!ts) return "—";
     const d = Math.floor(Date.now() / 1000 - ts);
@@ -106,14 +102,72 @@
     );
   }
 
-  // ---------- Landing → App transition ----------
+  // ==========================================================================
+  // Custom dropdown component (replaces ugly native <select>)
+  // ==========================================================================
+  function closeAllDropdowns() {
+    document.querySelectorAll(".dropdown-menu").forEach((m) => m.classList.add("hidden"));
+    document.querySelectorAll(".dropdown-trigger").forEach((t) => t.classList.remove("open"));
+  }
+
+  document.addEventListener("click", closeAllDropdowns);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllDropdowns(); });
+
+  function buildDropdown(ids, items, current, onSelect) {
+    const trigger = document.getElementById(ids.trigger);
+    const menu = document.getElementById(ids.menu);
+    const label = document.getElementById(ids.label);
+    if (!trigger || !menu || !label) return null;
+
+    const currentItem = items.find((i) => i.value === current) || items[0];
+    label.textContent = currentItem.label;
+
+    menu.innerHTML = items.map((item) => {
+      const active = item.value === current ? " active" : "";
+      const countHtml = typeof item.count === "number"
+        ? `<span class="count">${item.count}</span>`
+        : "";
+      return `<div class="dropdown-item${active}" data-value="${escAttr(item.value)}">
+                <span>${esc(item.label)}</span>
+                ${countHtml}
+              </div>`;
+    }).join("");
+
+    trigger.onclick = (e) => {
+      e.stopPropagation();
+      const wasOpen = !menu.classList.contains("hidden");
+      closeAllDropdowns();
+      if (!wasOpen) {
+        menu.classList.remove("hidden");
+        trigger.classList.add("open");
+      }
+    };
+
+    menu.querySelectorAll(".dropdown-item").forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const val = el.dataset.value;
+        const item = items.find((i) => i.value === val);
+        label.textContent = item ? item.label : val;
+        menu.querySelectorAll(".dropdown-item").forEach((m) => m.classList.remove("active"));
+        el.classList.add("active");
+        closeAllDropdowns();
+        onSelect(val);
+      };
+    });
+
+    return { trigger, menu, label };
+  }
+
+  // ==========================================================================
+  // Views
+  // ==========================================================================
   function showApp() {
     $("#landing").classList.add("hidden");
     $("#app").classList.remove("hidden");
     window.scrollTo(0, 0);
   }
 
-  // ---------- Rendering ----------
   function renderLanding() {
     const iface = state.iface || {};
     $("#landing-iface").textContent = iface.name || "—";
@@ -121,18 +175,23 @@
     $("#landing-cidr").textContent = iface.cidr || "—";
 
     const btn = $("#landing-scan");
+    if (!btn) return;
     btn.disabled = state.scanning;
     btn.classList.toggle("loading", state.scanning);
-    btn.querySelector("span").textContent = state.scanning ? "Scanning…" : "Start Scanning";
+    const span = btn.querySelector("span");
+    if (span) span.textContent = state.scanning ? "Scanning…" : "Start Scanning";
 
     const foot = $("#landing-foot-text");
-    if (state.scanning) foot.textContent = state.stage && state.stage !== "idle" ? state.stage + "…" : "Starting…";
-    else if (state.error) foot.textContent = "Last scan failed";
-    else foot.textContent = "Ready when you are";
+    if (foot) {
+      if (state.scanning) foot.textContent = state.stage && state.stage !== "idle" ? state.stage + "…" : "Starting…";
+      else if (state.error) foot.textContent = "Last scan failed";
+      else foot.textContent = "Ready when you are";
+    }
   }
 
   function renderProgress() {
     const p = $("#progress");
+    if (!p) return;
     if (state.scanning) {
       p.classList.remove("hidden");
       $("#progress-fill").style.width = (state.progress || 0) + "%";
@@ -145,15 +204,18 @@
   function renderTopbar() {
     const iface = state.iface || {};
     const dot = $("#top-dot");
-    if (state.scanning) dot.className = "dot scanning";
-    else if (state.error) dot.className = "dot error";
-    else dot.className = "dot online";
+    if (dot) {
+      if (state.scanning) dot.className = "dot scanning";
+      else if (state.error) dot.className = "dot error";
+      else dot.className = "dot online";
+    }
 
     $("#top-net").textContent = iface.ip ? `${iface.name || "iface"} · ${iface.ip}` : "No network";
     $("#top-count").textContent = state.devices.length;
     $("#top-time").textContent = state.lastScan ? fmtTime(state.lastScan) : "never";
 
-    $("#btn-scan").disabled = state.scanning;
+    const btn = $("#btn-scan");
+    if (btn) btn.disabled = state.scanning;
     $("#btn-scan-label").textContent = state.scanning ? "Scanning" : "Scan";
   }
 
@@ -169,13 +231,35 @@
   }
 
   function renderTypeFilter() {
-    const sel = $("#filter-type");
-    const types = Array.from(new Set(state.devices.map((d) => d.type || "Unknown"))).sort();
-    const current = state.filterType;
-    sel.innerHTML = `<option value="all">All types</option>` +
-      types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
-    sel.value = types.includes(current) ? current : "all";
-    state.filterType = sel.value;
+    const counts = {};
+    for (const d of state.devices) {
+      const t = d.type || "Unknown";
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    const types = Object.keys(counts).sort((a, b) => {
+      if (a === "Unknown") return 1;
+      if (b === "Unknown") return -1;
+      return a.localeCompare(b);
+    });
+
+    const items = [
+      { value: "all", label: "All types", count: state.devices.length },
+      ...types.map((t) => ({ value: t, label: t, count: counts[t] })),
+    ];
+
+    if (!items.some((i) => i.value === state.filterType)) {
+      state.filterType = "all";
+    }
+
+    buildDropdown(
+      { trigger: "filter-type-trigger", menu: "filter-type-menu", label: "filter-type-label" },
+      items,
+      state.filterType,
+      (val) => {
+        state.filterType = val;
+        renderGroups();
+      }
+    );
   }
 
   function buildCard(d) {
@@ -184,17 +268,18 @@
       (d.is_self ? " self" : "") +
       (d.is_gateway ? " gateway" : "");
 
-    const name = d.hostname || "Unknown Device";
-    const nameClass = d.hostname ? "" : "unknown";
+    const hasName = !!(d.hostname && d.hostname !== "Unknown Device");
+    const displayName = hasName ? d.hostname : "Unknown Device";
+    const nameClass = hasName ? "" : "unknown";
 
     let primaryTag = "";
     let primaryClass = "";
     if (d.is_self) { primaryTag = "This Device"; primaryClass = "self"; }
     else if (d.is_gateway) { primaryTag = "Router"; primaryClass = "gateway"; }
 
-    const vendorLine = d.vendor && d.vendor !== "Unknown"
-      ? esc(d.vendor)
-      : `<span style="opacity:.6">Vendor unknown</span>`;
+    const vendorChip = d.vendor
+      ? `<span class="vendor-chip">${esc(d.vendor)}</span>`
+      : "";
 
     card.innerHTML = `
       <div class="device-head">
@@ -204,8 +289,11 @@
           <span class="tag type">${esc(d.type || "Unknown")}</span>
         </div>
       </div>
-      <div class="device-name ${nameClass}">${esc(name)}</div>
-      <div class="device-vendor">${vendorLine}</div>
+      <div class="device-name ${nameClass}">${esc(displayName)}</div>
+      <div class="device-meta">
+        ${vendorChip}
+        ${d.is_self ? '<span class="meta-chip self-chip">you</span>' : ""}
+      </div>
       <div class="device-rows">
         <div class="device-row">
           <span class="k">IP</span>
@@ -227,20 +315,24 @@
     const empty = $("#empty");
     const pinnedGrid = $("#grid-pinned");
     const othersGrid = $("#grid-others");
+    if (!pinnedGrid || !othersGrid) return;
 
     pinnedGrid.innerHTML = "";
     othersGrid.innerHTML = "";
 
-    // Filter
     let list = state.devices.slice();
-    if (state.filterType !== "all") list = list.filter((d) => (d.type || "Unknown") === state.filterType);
+    if (state.filterType !== "all") {
+      list = list.filter((d) => (d.type || "Unknown") === state.filterType);
+    }
     if (state.search) {
       const q = state.search.toLowerCase();
       list = list.filter((d) =>
-        [d.hostname, d.ip, d.mac, d.vendor, d.type].some((v) => v && String(v).toLowerCase().includes(q)));
+        [d.hostname, d.ip, d.mac, d.vendor, d.type]
+          .some((v) => v && String(v).toLowerCase().includes(q)));
     }
 
-    $("#device-count").textContent = list.length;
+    const countEl = $("#device-count");
+    if (countEl) countEl.textContent = list.length;
 
     if (list.length === 0) {
       pinned.classList.add("hidden");
@@ -250,7 +342,6 @@
     }
     empty.classList.add("hidden");
 
-    // Split: this device + router first, then everything else
     const keyDevices = list
       .filter((d) => d.is_self || d.is_gateway)
       .sort((a, b) => {
@@ -258,7 +349,9 @@
         if (b.is_self && !a.is_self) return 1;
         return 0;
       });
-    const otherDevices = list.filter((d) => !d.is_self && !d.is_gateway)
+
+    const otherDevices = list
+      .filter((d) => !d.is_self && !d.is_gateway)
       .sort((a, b) => {
         const n = (ip) => (ip || "").split(".").reduce((acc, p) => acc * 256 + (parseInt(p, 10) || 0), 0);
         return n(a.ip) - n(b.ip);
@@ -280,7 +373,9 @@
     }
   }
 
-  // ---------- Modal ----------
+  // ==========================================================================
+  // Modal
+  // ==========================================================================
   function openModal(d) {
     const name = d.hostname || "Unknown Device";
     $("#modal-title").textContent = name;
@@ -307,7 +402,7 @@
         const cls = na ? "na" : "";
         const val = na ? "Not available" : esc(v);
         const copyBtn = canCopy && !na
-          ? `<span class="copy" data-copy="${esc(v)}" title="Copy">${svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', 12)}</span>`
+          ? `<span class="copy" data-copy="${escAttr(v)}" title="Copy">${svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', 12)}</span>`
           : "";
         return `<div class="detail-k">${esc(k)}</div><div class="detail-v ${cls}">${val}${copyBtn}</div>`;
       }).join("") +
@@ -325,14 +420,16 @@
 
   function closeModal() { $("#modal").classList.add("hidden"); }
 
-  // ---------- API ----------
+  // ==========================================================================
+  // API
+  // ==========================================================================
   async function fetchNetwork() {
     try {
       const r = await fetch("/api/network");
       const d = await r.json();
       state.iface = d.interface;
       state.localName = d.local_name;
-    } catch (_) { }
+    } catch (_) {}
   }
 
   async function fetchDevices() {
@@ -349,8 +446,10 @@
       state.error = d.error;
 
       const banner = $("#banner");
-      if (state.error) { banner.textContent = state.error; banner.classList.remove("hidden"); }
-      else banner.classList.add("hidden");
+      if (banner) {
+        if (state.error) { banner.textContent = state.error; banner.classList.remove("hidden"); }
+        else banner.classList.add("hidden");
+      }
 
       renderLanding();
       renderProgress();
@@ -366,7 +465,7 @@
   async function startScan(fromLanding) {
     if (state.scanning) return;
     if (fromLanding) showApp();
-    try { await fetch("/api/scan", { method: "POST" }); } catch (_) { }
+    try { await fetch("/api/scan", { method: "POST" }); } catch (_) {}
     state.scanning = true;
     renderProgress();
     renderTopbar();
@@ -384,23 +483,33 @@
     }, 700);
   }
 
-  // ---------- Wire ----------
+  // ==========================================================================
+  // Wire
+  // ==========================================================================
   function wire() {
-    $("#landing-scan").addEventListener("click", () => startScan(true));
-    $("#btn-scan").addEventListener("click", () => startScan(false));
-    $("#btn-refresh").addEventListener("click", async () => {
-      await fetchNetwork();
-      await fetchDevices();
-      toast("Refreshed", "ok");
-    });
-    $("#search").addEventListener("input", (e) => {
-      state.search = e.target.value.trim();
-      renderGroups();
-    });
-    $("#filter-type").addEventListener("change", (e) => {
-      state.filterType = e.target.value;
-      renderGroups();
-    });
+    const landingBtn = $("#landing-scan");
+    if (landingBtn) landingBtn.addEventListener("click", () => startScan(true));
+
+    const scanBtn = $("#btn-scan");
+    if (scanBtn) scanBtn.addEventListener("click", () => startScan(false));
+
+    const refreshBtn = $("#btn-refresh");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", async () => {
+        await fetchNetwork();
+        await fetchDevices();
+        toast("Refreshed", "ok");
+      });
+    }
+
+    const searchInput = $("#search");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        state.search = e.target.value.trim();
+        renderGroups();
+      });
+    }
+
     $$("#modal [data-close]").forEach((el) => el.addEventListener("click", closeModal));
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
   }
