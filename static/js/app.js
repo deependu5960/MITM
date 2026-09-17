@@ -10,11 +10,8 @@
     progress: 0,
     lastScan: null,
     error: null,
-    sortKey: "ip",
-    sortDir: "asc",
     search: "",
     filterType: "all",
-    filterStatus: "all",
     poll: null,
   };
 
@@ -49,7 +46,7 @@
   const esc = (s) => (s === null || s === undefined) ? "" :
     String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString() : "Never";
+  const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "Never";
   const fmtRel = (ts) => {
     if (!ts) return "—";
     const d = Math.floor(Date.now() / 1000 - ts);
@@ -61,13 +58,17 @@
 
   const icon = (type) => ICON[type] || ICON.Unknown;
 
+  function svg(path, size = 20) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+  }
+
   function toast(msg, kind = "") {
     const el = $("#toast");
     el.textContent = msg;
     el.className = "toast " + kind;
     el.classList.remove("hidden");
     clearTimeout(el._t);
-    el._t = setTimeout(() => el.classList.add("hidden"), 3500);
+    el._t = setTimeout(() => el.classList.add("hidden"), 3200);
   }
 
   function copy(text, label) {
@@ -78,102 +79,66 @@
     );
   }
 
-  // ---- View switching
-  function setView(name) {
-    $$(".view").forEach((v) => v.classList.add("hidden"));
-    const el = document.getElementById("view-" + name);
-    if (el) el.classList.remove("hidden");
-    $$(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.view === name));
+  // ---------- Landing → App transition ----------
+  function showApp() {
+    $("#landing").classList.add("hidden");
+    $("#app").classList.remove("hidden");
+    window.scrollTo(0, 0);
   }
 
-  // ---- Sorting/filtering
-  function filtered() {
-    let out = state.devices.slice();
-    if (state.filterType !== "all") out = out.filter((d) => (d.type || "Unknown") === state.filterType);
-    if (state.filterStatus !== "all") out = out.filter((d) => (d.status || "") === state.filterStatus);
-    if (state.search) {
-      const q = state.search.toLowerCase();
-      out = out.filter((d) =>
-        [d.hostname, d.ip, d.mac, d.vendor, d.type].some((v) => v && String(v).toLowerCase().includes(q)));
-    }
-    const dir = state.sortDir === "asc" ? 1 : -1;
-    const key = state.sortKey;
-    out.sort((a, b) => {
-      if (key === "ip") {
-        const n = (ip) => (ip || "").split(".").reduce((acc, p) => acc * 256 + (parseInt(p, 10) || 0), 0);
-        return (n(a.ip) - n(b.ip)) * dir;
-      }
-      const va = (a[key] ?? "").toString().toLowerCase();
-      const vb = (b[key] ?? "").toString().toLowerCase();
-      if (va < vb) return -1 * dir;
-      if (va > vb) return 1 * dir;
-      return 0;
-    });
-    return out;
-  }
-
-  // ---- Renderers
-  function renderProgress() {
-    const strip = $("#progress-strip");
-    if (state.scanning) {
-      strip.classList.remove("hidden");
-      $("#progress-fill").style.width = (state.progress || 0) + "%";
-      $("#progress-text").textContent = state.stage === "idle" ? "Starting…" : state.stage + "…";
-    } else {
-      strip.classList.add("hidden");
-    }
-  }
-
-  function renderSidebar() {
-    const dot = $("#side-dot");
-    const txt = $("#side-text");
-    if (state.scanning) { dot.className = "dot scanning"; txt.textContent = "Scanning"; }
-    else if (state.error) { dot.className = "dot error"; txt.textContent = "Error"; }
-    else { dot.className = "dot online"; txt.textContent = "Ready"; }
-  }
-
-  function renderHeader() {
+  // ---------- Rendering ----------
+  function renderLanding() {
     const iface = state.iface || {};
-    $("#net-name").textContent = iface.name || "No network";
-    $("#net-sub").textContent = iface.ip ? `${iface.ip} · ${iface.cidr || ""}` : "—";
+    $("#landing-iface").textContent = iface.name || "—";
+    $("#landing-ip").textContent = iface.ip || "—";
+    $("#landing-cidr").textContent = iface.cidr || "—";
+
+    const btn = $("#landing-scan");
+    btn.disabled = state.scanning;
+    btn.classList.toggle("loading", state.scanning);
+    btn.querySelector("span").textContent = state.scanning ? "Scanning…" : "Start Scanning";
+
+    const foot = $("#landing-foot-text");
+    if (state.scanning) foot.textContent = state.stage && state.stage !== "idle" ? state.stage + "…" : "Starting…";
+    else if (state.error) foot.textContent = "Last scan failed";
+    else foot.textContent = "Ready when you are";
   }
 
-  function renderStats() {
-    const online = state.devices.filter((d) => d.status === "online").length;
-    $("#stat-devices").textContent = state.devices.length;
-    $("#stat-devices-sub").textContent = state.devices.length ? "on this network" : "not scanned yet";
-    $("#stat-online").textContent = online;
-    $("#stat-online-sub").textContent = online ? "reachable" : "—";
-    $("#stat-network").textContent = state.iface ? (state.iface.cidr || "—") : "—";
-    $("#stat-network-sub").textContent = state.iface ? (state.iface.network || "—") : "—";
-    $("#stat-local-ip").textContent = state.iface ? state.iface.ip : "—";
-    $("#stat-local-name").textContent = state.localName || "—";
-    $("#stat-iface").textContent = state.iface ? state.iface.name : "—";
-    $("#stat-last").textContent = fmtTime(state.lastScan);
-    $("#stat-last-sub").textContent = state.lastScan ? fmtRel(state.lastScan) : "—";
+  function renderProgress() {
+    const p = $("#progress");
+    if (state.scanning) {
+      p.classList.remove("hidden");
+      $("#progress-fill").style.width = (state.progress || 0) + "%";
+      $("#progress-text").textContent = (state.stage && state.stage !== "idle" ? state.stage : "Starting") + "…";
+    } else {
+      p.classList.add("hidden");
+    }
   }
 
-  function renderMini() {
-    const grid = $("#mini-grid");
-    const empty = $("#mini-empty");
-    grid.innerHTML = "";
-    if (state.devices.length === 0) { empty.classList.remove("hidden"); return; }
-    empty.classList.add("hidden");
-    state.devices.slice(0, 6).forEach((d) => {
-      const el = document.createElement("div");
-      el.className = "mini-card";
-      el.addEventListener("click", () => openModal(d));
-      const name = d.hostname || "Unknown Device";
-      const unknownClass = d.hostname ? "" : "unknown";
-      el.innerHTML = `
-        <div class="mini-avatar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon(d.type)}</svg></div>
-        <div class="mini-info">
-          <div class="mini-name ${unknownClass}">${esc(name)}</div>
-          <div class="mini-meta">${esc(d.ip)}${d.vendor && d.vendor !== "Unknown" ? " · " + esc(d.vendor) : ""}</div>
-        </div>
-      `;
-      grid.appendChild(el);
-    });
+  function renderTopbar() {
+    const iface = state.iface || {};
+    const dot = $("#top-dot");
+    if (state.scanning) dot.className = "dot scanning";
+    else if (state.error) dot.className = "dot error";
+    else dot.className = "dot online";
+
+    $("#top-net").textContent = iface.ip ? `${iface.name || "iface"} · ${iface.ip}` : "No network";
+    $("#top-count").textContent = state.devices.length;
+    $("#top-time").textContent = state.lastScan ? fmtTime(state.lastScan) : "never";
+
+    $("#btn-scan").disabled = state.scanning;
+    $("#btn-scan-label").textContent = state.scanning ? "Scanning" : "Scan";
+  }
+
+  function renderSummary() {
+    const self = state.devices.find((d) => d.is_self);
+    const router = state.devices.find((d) => d.is_gateway);
+    const iface = state.iface || {};
+
+    $("#sum-self").textContent = (self && (self.hostname || self.ip)) || state.localName || "—";
+    $("#sum-router").textContent = (router && (router.hostname || router.ip)) || "—";
+    $("#sum-cidr").textContent = iface.cidr || "—";
+    $("#sum-time").textContent = state.lastScan ? fmtTime(state.lastScan) : "Never";
   }
 
   function renderTypeFilter() {
@@ -186,52 +151,115 @@
     state.filterType = sel.value;
   }
 
-  function renderTable() {
-    const list = filtered();
-    $("#count-pill").textContent = list.length;
-    const tbody = $("#device-tbody");
-    const empty = $("#devices-empty");
-    tbody.innerHTML = "";
+  function buildCard(d) {
+    const card = document.createElement("div");
+    card.className = "device" +
+      (d.is_self ? " self" : "") +
+      (d.is_gateway ? " gateway" : "");
 
-    if (list.length === 0) { empty.classList.remove("hidden"); return; }
-    empty.classList.add("hidden");
+    const name = d.hostname || "Unknown Device";
+    const nameClass = d.hostname ? "" : "unknown";
 
-    $$(".device-table thead th").forEach((th) => {
-      const ind = th.querySelector(".arrow");
-      if (!ind) return;
-      ind.textContent = th.dataset.sort === state.sortKey
-        ? (state.sortDir === "asc" ? "▲" : "▼") : "";
-    });
+    let primaryTag = "";
+    let primaryClass = "";
+    if (d.is_self) { primaryTag = "This Device"; primaryClass = "self"; }
+    else if (d.is_gateway) { primaryTag = "Router"; primaryClass = "gateway"; }
 
-    const frag = document.createDocumentFragment();
-    list.forEach((d) => {
-      const tr = document.createElement("tr");
-      const name = d.hostname || "Unknown Device";
-      const unknownClass = d.hostname ? "" : "unknown";
-      const statusCls = d.status === "online" ? "online" : "unknown";
-      tr.addEventListener("click", () => openModal(d));
-      tr.innerHTML = `
-        <td>
-          <div class="cell-name">
-            <div class="row-avatar"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon(d.type)}</svg></div>
-            <div class="name-text ${unknownClass}">${esc(name)}</div>
-          </div>
-        </td>
-        <td class="mono">${esc(d.ip)}</td>
-        <td class="mono">${esc(d.mac || "—")}</td>
-        <td class="${d.vendor && d.vendor !== "Unknown" ? "" : "dim"}">${esc(d.vendor || "Unknown")}</td>
-        <td><span class="type-badge">${esc(d.type || "Unknown")}</span></td>
-        <td><span class="badge ${statusCls}"><span class="dot"></span>${esc(d.status || "unknown")}</span></td>
-        <td class="dim">${esc(fmtRel(d.last_seen))}</td>
-      `;
-      frag.appendChild(tr);
-    });
-    tbody.appendChild(frag);
+    const vendorLine = d.vendor && d.vendor !== "Unknown"
+      ? esc(d.vendor)
+      : `<span style="opacity:.6">Vendor unknown</span>`;
+
+    card.innerHTML = `
+      <div class="device-head">
+        <div class="device-avatar">${svg(icon(d.type), 22)}</div>
+        <div class="device-tags">
+          ${primaryTag ? `<span class="tag ${primaryClass}">${primaryTag}</span>` : ""}
+          <span class="tag type">${esc(d.type || "Unknown")}</span>
+        </div>
+      </div>
+      <div class="device-name ${nameClass}">${esc(name)}</div>
+      <div class="device-vendor">${vendorLine}</div>
+      <div class="device-rows">
+        <div class="device-row">
+          <span class="k">IP</span>
+          <span class="v">${esc(d.ip || "—")}</span>
+        </div>
+        <div class="device-row">
+          <span class="k">MAC</span>
+          <span class="v ${d.mac ? "" : "dim"}">${esc(d.mac || "not available")}</span>
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", () => openModal(d));
+    return card;
   }
 
-  // ---- Modal
+  function renderGroups() {
+    const pinned = $("#group-pinned");
+    const others = $("#group-others");
+    const empty = $("#empty");
+    const pinnedGrid = $("#grid-pinned");
+    const othersGrid = $("#grid-others");
+
+    pinnedGrid.innerHTML = "";
+    othersGrid.innerHTML = "";
+
+    // Filter
+    let list = state.devices.slice();
+    if (state.filterType !== "all") list = list.filter((d) => (d.type || "Unknown") === state.filterType);
+    if (state.search) {
+      const q = state.search.toLowerCase();
+      list = list.filter((d) =>
+        [d.hostname, d.ip, d.mac, d.vendor, d.type].some((v) => v && String(v).toLowerCase().includes(q)));
+    }
+
+    $("#device-count").textContent = list.length;
+
+    if (list.length === 0) {
+      pinned.classList.add("hidden");
+      others.classList.add("hidden");
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+
+    // Split: this device + router first, then everything else
+    const keyDevices = list
+      .filter((d) => d.is_self || d.is_gateway)
+      .sort((a, b) => {
+        if (a.is_self && !b.is_self) return -1;
+        if (b.is_self && !a.is_self) return 1;
+        return 0;
+      });
+    const otherDevices = list.filter((d) => !d.is_self && !d.is_gateway)
+      .sort((a, b) => {
+        const n = (ip) => (ip || "").split(".").reduce((acc, p) => acc * 256 + (parseInt(p, 10) || 0), 0);
+        return n(a.ip) - n(b.ip);
+      });
+
+    if (keyDevices.length) {
+      pinned.classList.remove("hidden");
+      keyDevices.forEach((d) => pinnedGrid.appendChild(buildCard(d)));
+    } else {
+      pinned.classList.add("hidden");
+    }
+
+    if (otherDevices.length) {
+      others.classList.remove("hidden");
+      $("#others-count").textContent = otherDevices.length;
+      otherDevices.forEach((d) => othersGrid.appendChild(buildCard(d)));
+    } else {
+      others.classList.add("hidden");
+    }
+  }
+
+  // ---------- Modal ----------
   function openModal(d) {
-    $("#modal-title").textContent = d.hostname || "Unknown Device";
+    const name = d.hostname || "Unknown Device";
+    $("#modal-title").textContent = name;
+    $("#modal-sub").textContent = d.ip || "";
+    $("#modal-icon").innerHTML = svg(icon(d.type), 22);
+
     const rows = [
       ["Hostname", d.hostname, false],
       ["IP Address", d.ip, true],
@@ -239,22 +267,24 @@
       ["Vendor", d.vendor, false],
       ["Device Type", d.type, false],
       ["Status", d.status, false],
-      ["Last Seen", fmtRel(d.last_seen), false],
+      ["Last Seen", d.last_seen ? fmtRel(d.last_seen) : null, false],
       ["Name Source", d.name_source && d.name_source !== "none" ? d.name_source : null, false],
       ["Services", d.services && d.services.length ? d.services.join(", ") : null, false],
       ["Network", state.iface ? state.iface.cidr : null, false],
       ["Interface", state.iface ? state.iface.name : null, false],
     ];
-    $("#modal-body").innerHTML = `<div class="detail-grid">` + rows.map(([k, v, copyable]) => {
-      const na = (v === null || v === undefined || v === "");
-      const cls = na ? "na" : "";
-      const val = na ? "Not available" : esc(v);
-      const copyBtn = (copyable && !na)
-        ? `<span class="copy" data-copy="${esc(v)}" title="Copy">
-             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-           </span>` : "";
-      return `<div class="detail-k">${esc(k)}</div><div class="detail-v ${cls}">${val}${copyBtn}</div>`;
-    }).join("") + `</div>`;
+
+    $("#modal-body").innerHTML = `<div class="detail-grid">` +
+      rows.map(([k, v, canCopy]) => {
+        const na = v === null || v === undefined || v === "";
+        const cls = na ? "na" : "";
+        const val = na ? "Not available" : esc(v);
+        const copyBtn = canCopy && !na
+          ? `<span class="copy" data-copy="${esc(v)}" title="Copy">${svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', 12)}</span>`
+          : "";
+        return `<div class="detail-k">${esc(k)}</div><div class="detail-v ${cls}">${val}${copyBtn}</div>`;
+      }).join("") +
+      `</div>`;
 
     $$("#modal-body .copy").forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -262,19 +292,19 @@
         copy(el.dataset.copy, "Value");
       });
     });
+
     $("#modal").classList.remove("hidden");
   }
 
   function closeModal() { $("#modal").classList.add("hidden"); }
 
-  // ---- API
+  // ---------- API ----------
   async function fetchNetwork() {
     try {
       const r = await fetch("/api/network");
       const d = await r.json();
       state.iface = d.interface;
       state.localName = d.local_name;
-      renderHeader();
     } catch (_) {}
   }
 
@@ -295,28 +325,25 @@
       if (state.error) { banner.textContent = state.error; banner.classList.remove("hidden"); }
       else banner.classList.add("hidden");
 
-      const btn = $("#btn-scan");
-      btn.disabled = state.scanning;
-      $("#btn-scan-label").textContent = state.scanning ? "Scanning…" : "Scan Network";
-
+      renderLanding();
       renderProgress();
-      renderSidebar();
-      renderHeader();
-      renderStats();
-      renderMini();
+      renderTopbar();
+      renderSummary();
       renderTypeFilter();
-      renderTable();
+      renderGroups();
     } catch (e) {
       toast("Cannot reach server: " + e.message, "err");
     }
   }
 
-  async function startScan() {
+  async function startScan(fromLanding) {
     if (state.scanning) return;
+    if (fromLanding) showApp();
     try { await fetch("/api/scan", { method: "POST" }); } catch (_) {}
     state.scanning = true;
     renderProgress();
-    renderSidebar();
+    renderTopbar();
+    renderLanding();
 
     clearInterval(state.poll);
     state.poll = setInterval(async () => {
@@ -324,28 +351,28 @@
       if (!state.scanning) {
         clearInterval(state.poll);
         state.poll = null;
-        toast(state.devices.length ? `Scan complete — ${state.devices.length} device(s) found.` : "Scan complete — no devices found.", state.devices.length ? "ok" : "");
+        if (state.devices.length) toast(`Scan complete — ${state.devices.length} device(s) found.`, "ok");
+        else toast("Scan complete — no devices found.", "");
       }
     }, 700);
   }
 
-  // ---- Wire
+  // ---------- Wire ----------
   function wire() {
-    $$(".nav-item").forEach((n) => n.addEventListener("click", (e) => { e.preventDefault(); setView(n.dataset.view); }));
-    $("#btn-scan").addEventListener("click", startScan);
-    $("#btn-refresh").addEventListener("click", () => { fetchNetwork(); fetchDevices(); toast("Refreshed", "ok"); });
-    $("#btn-view-all").addEventListener("click", () => setView("devices"));
-    $("#search").addEventListener("input", (e) => { state.search = e.target.value.trim(); renderTable(); });
-    $("#filter-type").addEventListener("change", (e) => { state.filterType = e.target.value; renderTable(); });
-    $("#filter-status").addEventListener("change", (e) => { state.filterStatus = e.target.value; renderTable(); });
-    $$(".device-table thead th").forEach((th) => {
-      th.addEventListener("click", () => {
-        const k = th.dataset.sort;
-        if (!k) return;
-        if (state.sortKey === k) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
-        else { state.sortKey = k; state.sortDir = "asc"; }
-        renderTable();
-      });
+    $("#landing-scan").addEventListener("click", () => startScan(true));
+    $("#btn-scan").addEventListener("click", () => startScan(false));
+    $("#btn-refresh").addEventListener("click", async () => {
+      await fetchNetwork();
+      await fetchDevices();
+      toast("Refreshed", "ok");
+    });
+    $("#search").addEventListener("input", (e) => {
+      state.search = e.target.value.trim();
+      renderGroups();
+    });
+    $("#filter-type").addEventListener("change", (e) => {
+      state.filterType = e.target.value;
+      renderGroups();
     });
     $$("#modal [data-close]").forEach((el) => el.addEventListener("click", closeModal));
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
