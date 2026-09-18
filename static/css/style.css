@@ -642,3 +642,51 @@ input,select{font-family:inherit}
   .mitm-window-sub{flex-direction:column;align-items:stretch}
   .mitm-actions{justify-content:flex-end}
 }
+
+
+/* ============================================================
+   Raw Packets — custom scrollbar
+   ============================================================ */
+.packet-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(91,141,255,.35) transparent;
+}
+
+.packet-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.packet-table-wrap::-webkit-scrollbar-track {
+  background: rgba(0,0,0,.2);
+  border-radius: 999px;
+}
+
+.packet-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.08);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background .15s;
+}
+
+.packet-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(91,141,255,.45);
+  background-clip: padding-box;
+}
+
+.packet-table-wrap::-webkit-scrollbar-thumb:active {
+  background: rgba(91,141,255,.65);
+  background-clip: padding-box;
+}
+
+.packet-table-wrap::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox fallback */
+@supports (scrollbar-width: thin) {
+  .packet-table-wrap {
+    scrollbar-color: rgba(91,141,255,.35) rgba(0,0,0,.2);
+  }
+}
