@@ -13,13 +13,12 @@ Never decrypts TLS. Only reads the plaintext SNI / HTTP headers on the wire.
 """
 from __future__ import annotations
 import logging
-import queue
 import socket
 import struct
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 from .stream import STREAM
 
@@ -35,11 +34,12 @@ class Intercept:
     client_ip: str
     client_port: int
     hostname: Optional[str]
+    dst_ip: Optional[str]
     dst_port: int
-    proto: str                          # "HTTP" | "HTTPS"
+    proto: str
     first_seen: float
     bytes: int = 0
-    status: str = "pending"             # pending | forwarded | dropped | error
+    status: str = "pending"
     resolved_at: Optional[float] = None
     sni_raw: Optional[str] = None
     http_method: Optional[str] = None
@@ -53,6 +53,7 @@ class Intercept:
             "client_ip": self.client_ip,
             "client_port": self.client_port,
             "hostname": self.hostname,
+            "dst_ip": self.dst_ip,
             "dst_port": self.dst_port,
             "proto": self.proto,
             "first_seen": self.first_seen,
@@ -109,14 +110,16 @@ def _read_http_headers(buf: bytes) -> Optional[dict]:
     try:
         text = buf[:8192].decode("latin-1", errors="ignore")
         if "\r\n\r\n" not in text and "\n\n" not in text:
-            return None
+            # Try anyway if we have a request line
+            if not any(text.startswith(m) for m in ("GET ", "POST", "HEAD", "PUT ", "DELE", "OPTI", "PATC")):
+                return None
         lines = text.replace("\r\n", "\n").split("\n")
         if not lines:
             return None
         first = lines[0].split()
-        if len(first) < 3:
+        if len(first) < 2:
             return None
-        method, path, _ = first[0], first[1], first[2]
+        method, path = first[0], first[1]
         headers = {}
         for line in lines[1:]:
             if not line:
@@ -138,17 +141,16 @@ def _read_http_headers(buf: bytes) -> Optional[dict]:
 # Proxy
 # =====================================================================
 class InterceptProxy:
-    def __init__(self, listen_port: int, engine, on_new: callable = None):
+    def __init__(self, listen_port: int, engine):
         self.listen_port = listen_port
         self.engine = engine
-        self.on_new = on_new
         self._stop = threading.Event()
         self._server: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
         self._conn_lock = threading.Lock()
         self._next_id = 1
         self._intercepts: Dict[int, Intercept] = {}
-        self._decisions: Dict[int, str] = {}   # id -> "forward" | "drop"
+        self._decisions: Dict[int, str] = {}
 
     # ------------------------------------------------------------------
     def start(self) -> None:
@@ -165,14 +167,10 @@ class InterceptProxy:
                 self._server.close()
         except Exception:
             pass
-        # Release any paused connections
         with self._conn_lock:
-            for iid in list(self._decisions.keys()):
-                self._decisions[iid] = "drop"
             for iid, itc in self._intercepts.items():
                 if itc.status == "pending":
-                    itc.status = "dropped"
-                    itc.reason = "session stopped"
+                    self._decisions[iid] = "drop"
 
     def _serve(self) -> None:
         try:
@@ -201,15 +199,32 @@ class InterceptProxy:
             ).start()
 
     # ------------------------------------------------------------------
+    def _original_dst(self, s: socket.socket) -> Optional[tuple]:
+        """
+        Read original destination IP:port via SO_ORIGINAL_DST (Linux NAT).
+        MUST be called BEFORE any recv() on the socket — the NAT metadata
+        is consumed once data is read.
+        """
+        try:
+            SO_ORIGINAL_DST = 80
+            dst = s.getsockopt(socket.SOL_IP, SO_ORIGINAL_DST, 16)
+            port = struct.unpack(">H", dst[2:4])[0]
+            ip = ".".join(str(b) for b in dst[4:8])
+            return (ip, port)
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
     def _handle(self, client: socket.socket, addr) -> None:
         itc: Optional[Intercept] = None
         upstream: Optional[socket.socket] = None
         try:
-            # Read the original destination port via SO_ORIGINAL_DST (Linux NAT)
+            # ---- STEP 1: read SO_ORIGINAL_DST BEFORE any recv ----
             orig_dst = self._original_dst(client)
             dst_port = orig_dst[1] if orig_dst else 443
+            dst_ip = orig_dst[0] if orig_dst else None
 
-            # Peek at the first bytes to identify hostname
+            # ---- STEP 2: peek at first bytes to identify hostname ----
             client.settimeout(4.0)
             try:
                 head = client.recv(4096, socket.MSG_PEEK)
@@ -233,6 +248,7 @@ class InterceptProxy:
                     http_headers = parsed.get("headers")
                     hostname = parsed.get("host")
 
+            # ---- STEP 3: register the intercept ----
             with self._conn_lock:
                 iid = self._next_id
                 self._next_id += 1
@@ -241,6 +257,7 @@ class InterceptProxy:
                     client_ip=addr[0],
                     client_port=addr[1],
                     hostname=hostname,
+                    dst_ip=dst_ip,
                     dst_port=dst_port,
                     proto=proto,
                     first_seen=time.time(),
@@ -251,13 +268,15 @@ class InterceptProxy:
                 )
                 self._intercepts[iid] = itc
 
-            # Publish to GUI
             STREAM.publish_intercept(itc.to_dict())
+            log.info("Intercept #%d  %s:%d -> %s:%d  host=%s",
+                     iid, addr[0], addr[1], dst_ip, dst_port, hostname or "?")
 
-            # Decide
-            action = self.engine.decide(hostname)
+            # ---- STEP 4: decide ----
+            rule_action = self.engine.decide(hostname)
+            action = rule_action
+
             if action == "pause":
-                # Wait for user decision (with a generous timeout)
                 deadline = time.time() + 300
                 while time.time() < deadline and not self._stop.is_set():
                     with self._conn_lock:
@@ -268,11 +287,35 @@ class InterceptProxy:
                 with self._conn_lock:
                     decision = self._decisions.pop(iid, "drop")
                 action = "allow" if decision == "forward" else "deny"
+                itc.reason = "user"
 
             if action == "deny":
                 itc.status = "dropped"
                 itc.resolved_at = time.time()
-                itc.reason = "rule" if self.engine.decide(hostname) == "deny" else "user"
+                if not itc.reason:
+                    itc.reason = "rule"
+                STREAM.publish_intercept(itc.to_dict())
+                log.info("Intercept #%d DROPPED (%s)", iid, itc.reason)
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                return
+
+            # ---- STEP 5: ALLOW — connect upstream ----
+            target_ip = dst_ip
+            if not target_ip or target_ip.startswith("127."):
+                # Fallback: try to resolve hostname
+                if hostname:
+                    try:
+                        target_ip = socket.gethostbyname(hostname)
+                    except Exception:
+                        target_ip = None
+
+            if not target_ip:
+                itc.status = "error"
+                itc.reason = "no upstream destination"
+                itc.resolved_at = time.time()
                 STREAM.publish_intercept(itc.to_dict())
                 try:
                     client.close()
@@ -280,18 +323,20 @@ class InterceptProxy:
                     pass
                 return
 
-            # ALLOW — connect upstream
             upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            upstream.settimeout(6.0)
-            upstream.connect((self._original_dst_ip(client) or hostname or "", dst_port))
+            upstream.settimeout(8.0)
+            upstream.connect((target_ip, dst_port))
 
             itc.status = "forwarded"
             itc.resolved_at = time.time()
             STREAM.publish_intercept(itc.to_dict())
+            log.info("Intercept #%d FORWARDED to %s:%d", iid, target_ip, dst_port)
 
-            # Relay bytes both directions
-            self._pipe(client, upstream, itc)
-            self._pipe(upstream, client, itc)
+            # ---- STEP 6: relay bytes both directions ----
+            t1 = threading.Thread(target=self._pipe, args=(client, upstream, itc), daemon=True)
+            t2 = threading.Thread(target=self._pipe, args=(upstream, client, itc), daemon=True)
+            t1.start(); t2.start()
+            t1.join(); t2.join()
 
         except Exception as e:
             log.debug("intercept handle error: %s", e)
@@ -331,24 +376,7 @@ class InterceptProxy:
             pass
 
     # ------------------------------------------------------------------
-    def _original_dst(self, s: socket.socket) -> Optional[tuple]:
-        """Read original destination IP:port via SO_ORIGINAL_DST (Linux NAT)."""
-        try:
-            SO_ORIGINAL_DST = 80
-            dst = s.getsockopt(socket.SOL_IP, SO_ORIGINAL_DST, 16)
-            port = struct.unpack(">H", dst[2:4])[0]
-            ip = ".".join(str(b) for b in dst[4:8])
-            return (ip, port)
-        except Exception:
-            return None
-
-    def _original_dst_ip(self, s: socket.socket) -> Optional[str]:
-        d = self._original_dst(s)
-        return d[0] if d else None
-
-    # ------------------------------------------------------------------
     def decide(self, intercept_id: int, action: str) -> bool:
-        """Called by the API. action = 'forward' | 'drop'."""
         if action not in ("forward", "drop"):
             return False
         with self._conn_lock:
@@ -382,6 +410,5 @@ class InterceptProxy:
 
     def clear_history(self) -> None:
         with self._conn_lock:
-            # Keep only pending
             self._intercepts = {k: v for k, v in self._intercepts.items()
                                  if v.status == "pending"}

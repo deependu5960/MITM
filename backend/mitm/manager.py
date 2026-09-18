@@ -48,7 +48,7 @@ class MitmManager:
     def __init__(self):
         self._lock = threading.RLock()
         self._session = MitmSession()
-        self._mode = "observe"        # observe | intercept
+        self._mode = "observe"
         self._poisoner: Optional[arp.ArpPoisoner] = None
         self._capturer: Optional[capture.PacketCapturer] = None
         self._proxy: Optional[InterceptProxy] = None
@@ -102,6 +102,11 @@ class MitmManager:
             if self._session.state in (MitmState.STARTING, MitmState.RUNNING,
                                         MitmState.STOPPING):
                 return {"ok": False, "error": f"MITM is already {self._session.state.value}"}
+            # Defensive cleanup of any stale state
+            try:
+                self._cleanup(restore_arp=False)
+            except Exception:
+                pass
             self._session = MitmSession(state=MitmState.STARTING)
             self._mode = mode
 
@@ -153,7 +158,7 @@ class MitmManager:
             log.info("MITM start mode=%s victim=%s (%s) gateway=%s (%s) iface=%s",
                      mode, victim_ip, victim_mac, gateway_ip, gateway_mac, chosen_iface)
 
-            # Start ARP poisoner first (needed for both modes)
+            # ---- ARP poisoner (both modes) ----
             self._poisoner = arp.ArpPoisoner(
                 victim_ip=victim_ip, victim_mac=victim_mac,
                 gateway_ip=gateway_ip, gateway_mac=gateway_mac,
@@ -162,18 +167,16 @@ class MitmManager:
             )
             self._poisoner.start()
 
+            # ---- Mode-specific setup ----
             if mode == "observe":
-                # Kernel forwarding + FORWARD ACCEPT rules
                 if not forwarding.enable_forwarding(chosen_iface):
                     raise RuntimeError("Could not enable IP forwarding (need root)")
                 self._forwarding_enabled_by_us = True
                 with self._lock:
                     self._session.forwarded = True
 
-                # Flow tracker
                 self._flows = FlowTracker(victim_ip=victim_ip)
 
-                # Capture
                 STREAM.clear()
                 self._capturer = capture.PacketCapturer(
                     iface=chosen_iface, out_queue=self._queue,
@@ -181,7 +184,6 @@ class MitmManager:
                 )
                 self._capturer.start()
 
-                # Pump + emitters
                 self._pump_stop.clear()
                 self._pump_thread = threading.Thread(target=self._pump, daemon=True)
                 self._pump_thread.start()
@@ -193,20 +195,21 @@ class MitmManager:
                 self._flow_thread.start()
 
             else:  # intercept
-                # Redirect victim TCP to our proxy
                 if not forwarding.enable_redirect(chosen_iface, victim_ip, PROXY_PORT):
-                    raise RuntimeError("Could not set up iptables REDIRECT (need root)")
+                    raise RuntimeError(
+                        "Could not set up iptables REDIRECT rules. "
+                        "Check the terminal for the exact iptables error."
+                    )
                 self._redirect_enabled_by_us = True
+                log.info("Redirect rules installed for victim %s on %s",
+                         victim_ip, chosen_iface)
 
-                # Load rules
                 ENGINE.load()
 
-                # Start the proxy
                 STREAM.clear()
                 self._proxy = InterceptProxy(listen_port=PROXY_PORT, engine=ENGINE)
                 self._proxy.start()
 
-                # ARP stats emitter (still useful for the Control tab)
                 self._arp_stop.clear()
                 self._arp_thread = threading.Thread(target=self._emit_arp_stats, daemon=True)
                 self._arp_thread.start()
@@ -407,7 +410,7 @@ class MitmManager:
                 pass
             self._poisoner = None
 
-        # Forwarding / redirect
+        # Redirect / forwarding rules
         iface = None
         victim_ip = None
         with self._lock:
