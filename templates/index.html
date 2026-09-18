@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NetScope · Network Scanner &amp; Lab MITM</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-
 <body>
 
   <!-- Ambient background -->
@@ -258,23 +256,31 @@
         <div class="grid" id="grid-others"></div>
       </div>
 
-      <!-- ============================================================
-         MITM panel (hidden until a session is running)
-         ============================================================ -->
-      <section class="mitm-panel hidden" id="mitm-panel">
-        <div class="mitm-header">
-          <div class="mitm-title">
-            <span class="dot" id="mitm-dot"></span>
-            <span>MITM Lab Session</span>
-            <span class="mitm-state-pill" id="mitm-state">stopped</span>
-          </div>
-          <div class="mitm-actions">
-            <button class="btn btn-ghost small" id="mitm-pause">Pause</button>
-            <button class="btn btn-ghost small" id="mitm-clear">Clear</button>
-            <button class="btn btn-danger small" id="mitm-stop">Stop MITM</button>
-          </div>
-        </div>
+    </main>
+  </div>
 
+  <!-- ============================================================
+       MITM Overlay Window
+       ============================================================ -->
+  <div class="mitm-overlay hidden" id="mitm-panel">
+    <div class="mitm-overlay-backdrop"></div>
+
+    <div class="mitm-window">
+      <div class="mitm-window-head">
+        <div class="mitm-window-title">
+          <span class="dot" id="mitm-dot"></span>
+          <span>MITM Lab Session</span>
+          <span class="mitm-state-pill" id="mitm-state">stopped</span>
+        </div>
+        <button class="btn-icon" id="mitm-window-close" aria-label="Close window">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="mitm-window-sub">
         <div class="mitm-targets">
           <div class="target-row"><span class="k">Target</span><span class="v" id="mitm-vname">—</span></div>
           <div class="target-row"><span class="k">Target IP</span><span class="v" id="mitm-vip">—</span></div>
@@ -283,58 +289,42 @@
           <div class="target-row"><span class="k">Interface</span><span class="v" id="mitm-iface">—</span></div>
           <div class="target-row"><span class="k">Attacker MAC</span><span class="v" id="mitm-amac">—</span></div>
         </div>
-
-        <!-- Tab strip -->
-        <div class="mitm-tabs" role="tablist">
-          <button class="mitm-tab active" data-tab="control">Control</button>
-          <button class="mitm-tab" data-tab="arp">ARP Truth</button>
-          <button class="mitm-tab" data-tab="traffic">Traffic</button>
-          <button class="mitm-tab" data-tab="raw">Raw Packets</button>
+        <div class="mitm-actions">
+          <button class="btn btn-ghost small" id="mitm-pause">Pause</button>
+          <button class="btn btn-ghost small" id="mitm-clear">Clear</button>
+          <button class="btn btn-danger small" id="mitm-stop">Stop MITM</button>
         </div>
+      </div>
 
-        <!-- ============== TAB 1 · CONTROL ============== -->
+      <div class="mitm-tabs" role="tablist">
+        <button class="mitm-tab active" data-tab="control">Control</button>
+        <button class="mitm-tab" data-tab="arp">ARP Truth</button>
+        <button class="mitm-tab" data-tab="traffic">Traffic</button>
+        <button class="mitm-tab" data-tab="raw">Raw Packets</button>
+      </div>
+
+      <div class="mitm-window-body">
+        <!-- Control -->
         <div class="mitm-tabpane" data-pane="control">
           <div class="control-hero">
-            <div class="control-state">
-              <div class="control-state-badge" id="ctrl-state-badge">stopped</div>
-              <div class="control-state-sub" id="ctrl-state-sub">No session running</div>
-            </div>
+            <div class="control-state-badge" id="ctrl-state-badge">stopped</div>
+            <div class="control-state-sub" id="ctrl-state-sub">No session running</div>
           </div>
-
           <div class="control-cards">
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">Target</div>
-              <div class="ctrl-card-v" id="ctrl-victim">—</div>
-            </div>
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">Gateway</div>
-              <div class="ctrl-card-v" id="ctrl-gateway">—</div>
-            </div>
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">Interface</div>
-              <div class="ctrl-card-v" id="ctrl-iface">—</div>
-            </div>
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">Forwarding</div>
-              <div class="ctrl-card-v" id="ctrl-forwarding">—</div>
-            </div>
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">ARP sends</div>
-              <div class="ctrl-card-v" id="ctrl-arp-sends">0</div>
-            </div>
-            <div class="ctrl-card">
-              <div class="ctrl-card-k">Packets captured</div>
-              <div class="ctrl-card-v" id="ctrl-packets">0</div>
-            </div>
+            <div class="ctrl-card"><div class="ctrl-card-k">Target</div><div class="ctrl-card-v" id="ctrl-victim">—</div></div>
+            <div class="ctrl-card"><div class="ctrl-card-k">Gateway</div><div class="ctrl-card-v" id="ctrl-gateway">—</div></div>
+            <div class="ctrl-card"><div class="ctrl-card-k">Interface</div><div class="ctrl-card-v" id="ctrl-iface">—</div></div>
+            <div class="ctrl-card"><div class="ctrl-card-k">Forwarding</div><div class="ctrl-card-v" id="ctrl-forwarding">—</div></div>
+            <div class="ctrl-card"><div class="ctrl-card-k">ARP sends</div><div class="ctrl-card-v" id="ctrl-arp-sends">0</div></div>
+            <div class="ctrl-card"><div class="ctrl-card-k">Packets captured</div><div class="ctrl-card-v" id="ctrl-packets">0</div></div>
           </div>
-
           <div class="control-note">
             Your device is relaying traffic between the target and the gateway.
             ARP caches on both sides point at you. All traffic passes through this host.
           </div>
         </div>
 
-        <!-- ============== TAB 2 · ARP TRUTH ============== -->
+        <!-- ARP Truth -->
         <div class="mitm-tabpane hidden" data-pane="arp">
           <div class="arp-grid">
             <div class="arp-card arp-to-victim">
@@ -343,14 +333,8 @@
                 <div class="arp-card-target" id="arp-victim-target">—</div>
               </div>
               <div class="arp-lie-block">
-                <div class="arp-lie-line">
-                  <span class="arp-lie-k">Claim</span>
-                  <span class="arp-lie-v" id="arp-victim-claim">—</span>
-                </div>
-                <div class="arp-lie-line">
-                  <span class="arp-lie-k">Is at</span>
-                  <span class="arp-lie-v mono" id="arp-victim-mac">—</span>
-                </div>
+                <div class="arp-lie-line"><span class="arp-lie-k">Claim</span><span class="arp-lie-v" id="arp-victim-claim">—</span></div>
+                <div class="arp-lie-line"><span class="arp-lie-k">Is at</span><span class="arp-lie-v mono" id="arp-victim-mac">—</span></div>
               </div>
               <div class="arp-truth-block">
                 <div class="arp-lie-k">Truth was</div>
@@ -362,21 +346,14 @@
                 <div class="arp-counter-sub" id="arp-victim-last">never</div>
               </div>
             </div>
-
             <div class="arp-card arp-to-gateway">
               <div class="arp-card-head">
                 <div class="arp-card-label">LYING TO THE GATEWAY</div>
                 <div class="arp-card-target" id="arp-gateway-target">—</div>
               </div>
               <div class="arp-lie-block">
-                <div class="arp-lie-line">
-                  <span class="arp-lie-k">Claim</span>
-                  <span class="arp-lie-v" id="arp-gateway-claim">—</span>
-                </div>
-                <div class="arp-lie-line">
-                  <span class="arp-lie-k">Is at</span>
-                  <span class="arp-lie-v mono" id="arp-gateway-mac">—</span>
-                </div>
+                <div class="arp-lie-line"><span class="arp-lie-k">Claim</span><span class="arp-lie-v" id="arp-gateway-claim">—</span></div>
+                <div class="arp-lie-line"><span class="arp-lie-k">Is at</span><span class="arp-lie-v mono" id="arp-gateway-mac">—</span></div>
               </div>
               <div class="arp-truth-block">
                 <div class="arp-lie-k">Truth was</div>
@@ -391,19 +368,17 @@
           </div>
         </div>
 
-        <!-- ============== TAB 3 · TRAFFIC ============== -->
+        <!-- Traffic -->
         <div class="mitm-tabpane hidden" data-pane="traffic">
           <div class="traffic-head">
             <div class="traffic-title" id="traffic-title">Target is browsing…</div>
             <div class="traffic-summary" id="traffic-summary">0 destinations · 0 KB</div>
           </div>
           <div class="traffic-list" id="traffic-list"></div>
-          <div class="traffic-empty" id="traffic-empty">
-            Waiting for the target to make connections…
-          </div>
+          <div class="traffic-empty" id="traffic-empty">Waiting for the target to make connections…</div>
         </div>
 
-        <!-- ============== TAB 4 · RAW PACKETS ============== -->
+        <!-- Raw -->
         <div class="mitm-tabpane hidden" data-pane="raw">
           <div class="packet-filters">
             <button class="chip active" data-filter="ALL">All</button>
@@ -417,65 +392,46 @@
           <div class="packet-table-wrap">
             <table class="packet-table">
               <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Source</th>
-                  <th>Destination</th>
-                  <th>Proto</th>
-                  <th>Len</th>
-                  <th>Summary</th>
-                </tr>
+                <tr><th>Time</th><th>Source</th><th>Destination</th><th>Proto</th><th>Len</th><th>Summary</th></tr>
               </thead>
               <tbody id="packet-tbody"></tbody>
             </table>
-            <div class="packet-empty" id="packet-empty">
-              Waiting for packets… start a MITM session on a device.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Flow drawer -->
-      <div class="flow-drawer hidden" id="flow-drawer">
-        <div class="flow-drawer-backdrop" data-flow-close></div>
-        <div class="flow-drawer-panel">
-          <div class="flow-drawer-head">
-            <div>
-              <div class="flow-drawer-title" id="flow-drawer-title">—</div>
-              <div class="flow-drawer-sub" id="flow-drawer-sub">—</div>
-            </div>
-            <button class="btn-icon" data-flow-close aria-label="Close">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <div class="flow-drawer-stats" id="flow-drawer-stats"></div>
-          <div class="flow-drawer-packets">
-            <table class="packet-table small">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Source</th>
-                  <th>Destination</th>
-                  <th>Proto</th>
-                  <th>Len</th>
-                </tr>
-              </thead>
-              <tbody id="flow-drawer-tbody"></tbody>
-            </table>
+            <div class="packet-empty" id="packet-empty">Waiting for packets…</div>
           </div>
         </div>
       </div>
+    </div>
+  </div>
 
-    </main>
+  <!-- Flow drawer -->
+  <div class="flow-drawer hidden" id="flow-drawer">
+    <div class="flow-drawer-backdrop" data-flow-close></div>
+    <div class="flow-drawer-panel">
+      <div class="flow-drawer-head">
+        <div>
+          <div class="flow-drawer-title" id="flow-drawer-title">—</div>
+          <div class="flow-drawer-sub" id="flow-drawer-sub">—</div>
+        </div>
+        <button class="btn-icon" data-flow-close aria-label="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="flow-drawer-stats" id="flow-drawer-stats"></div>
+      <div class="flow-drawer-packets">
+        <table class="packet-table small">
+          <thead><tr><th>Time</th><th>Source</th><th>Destination</th><th>Proto</th><th>Len</th></tr></thead>
+          <tbody id="flow-drawer-tbody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- ============================================================
-     MITM confirmation modal
-     ============================================================ -->
-  <!-- MITM confirmation modal -->
+       MITM confirmation modal
+       ============================================================ -->
   <div class="modal hidden" id="mitm-confirm">
     <div class="modal-backdrop" data-close></div>
     <div class="modal-card mitm-confirm-card">
@@ -483,8 +439,7 @@
         <div class="modal-icon mitm-confirm-icon">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round">
-            <path
-              d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+            <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
           </svg>
         </div>
         <div class="modal-head-text">
@@ -504,7 +459,6 @@
             is relayed, not dropped. Every action is reversible on <b>Stop</b>.</p>
           <p class="muted">Only proceed if the target is a device you own or control in your authorized lab.</p>
         </div>
-
         <div class="detail-grid mitm-target-preview">
           <div class="detail-k">Target</div>
           <div class="detail-v" id="mitm-confirm-target">—</div>
@@ -515,7 +469,6 @@
           <div class="detail-k">Your MAC</div>
           <div class="detail-v" id="mitm-confirm-amac">—</div>
         </div>
-
         <div class="modal-actions mitm-confirm-actions">
           <button type="button" class="btn btn-ghost" data-close>Cancel</button>
           <button type="button" class="btn btn-danger big" id="mitm-confirm-go">
@@ -535,5 +488,4 @@
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
-
 </html>
