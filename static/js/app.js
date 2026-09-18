@@ -448,14 +448,29 @@
     }
   }
 
-  async function stopMitm() {
+    async function stopMitm() {
     try {
       const r = await fetch("/api/mitm/stop", { method: "POST" });
       const data = await r.json();
-      if (!r.ok || !data.success) { toast(data.error || "Could not stop MITM", "err"); return; }
-      closeMitmPanel();
+      if (!r.ok || !data.success) {
+        toast(data.error || "Could not stop MITM", "err");
+        return;
+      }
+      // Session stopped. Leave the window OPEN so the user can read results.
       disconnectMitmStream();
-      toast("MITM stopped", "ok");
+      if (data.session) applySessionToPanel(data.session);
+      const st = $("#mitm-state");
+      if (st) st.textContent = "stopped";
+      const dot = $("#mitm-dot");
+      if (dot) dot.className = "dot";
+      const badge = $("#ctrl-state-badge");
+      if (badge) {
+        badge.textContent = "stopped";
+        badge.className = "control-state-badge idle";
+      }
+      const sub = $("#ctrl-state-sub");
+      if (sub) sub.textContent = "Session stopped — window left open for review";
+      toast("MITM stopped — window left open for review", "ok");
     } catch (e) {
       toast("MITM stop error: " + e.message, "err");
     }
@@ -819,10 +834,9 @@
           connectMitmStream();
         }
       } else if (d.state === "stopped") {
-        if (!panel.classList.contains("hidden")) {
-          closeMitmPanel();
-          disconnectMitmStream();
-        }
+        // Do NOT close the window. Just update the state visuals.
+        // The user closes it manually via the ✕ button.
+        disconnectMitmStream();
       }
     } catch (_) {}
   }
