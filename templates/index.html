@@ -8,7 +8,6 @@
 </head>
 <body>
 
-  <!-- Ambient background -->
   <div class="bg-glow bg-glow-1"></div>
   <div class="bg-glow bg-glow-2"></div>
   <div class="bg-grid"></div>
@@ -18,8 +17,7 @@
     <div class="landing-inner">
       <div class="landing-brand">
         <div class="landing-logo">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8"
-            stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
           </svg>
@@ -75,8 +73,7 @@
       </div>
 
       <button class="landing-btn" id="landing-scan">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
-          stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="7" />
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
@@ -95,8 +92,7 @@
       <div class="topbar-left">
         <div class="topbar-brand">
           <div class="topbar-logo">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9" />
               <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
             </svg>
@@ -118,15 +114,12 @@
         </div>
         <button class="btn-icon" id="btn-refresh" title="Refresh">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-            <path d="M3 21v-5h5" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" />
           </svg>
         </button>
         <button class="btn btn-primary" id="btn-scan">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"
-            stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="7" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -136,9 +129,7 @@
     </header>
 
     <div class="progress hidden" id="progress">
-      <div class="progress-bar">
-        <div class="progress-fill" id="progress-fill"></div>
-      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
       <div class="progress-text" id="progress-text">Starting…</div>
     </div>
 
@@ -146,7 +137,6 @@
 
     <main class="content">
 
-      <!-- Summary strip -->
       <div class="summary" id="summary">
         <div class="summary-item">
           <div class="summary-icon summary-icon-blue">
@@ -198,7 +188,6 @@
         </div>
       </div>
 
-      <!-- Devices header -->
       <div class="devices-header">
         <div class="devices-header-left">
           <h2>Discovered Devices</h2>
@@ -215,8 +204,7 @@
           <div class="dropdown" id="filter-type-dd">
             <button class="dropdown-trigger" id="filter-type-trigger" type="button">
               <span id="filter-type-label">All types</span>
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4"
-                stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
@@ -225,7 +213,6 @@
         </div>
       </div>
 
-      <!-- Empty state -->
       <div class="empty-state hidden" id="empty">
         <div class="empty-illustration">
           <svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.4">
@@ -237,7 +224,6 @@
         <div class="empty-sub">Click <b>Scan</b> to discover devices on your network.</div>
       </div>
 
-      <!-- Pinned group -->
       <div class="group hidden" id="group-pinned">
         <div class="group-label">
           <span class="group-dot"></span>
@@ -246,7 +232,6 @@
         <div class="grid" id="grid-pinned"></div>
       </div>
 
-      <!-- Others -->
       <div class="group hidden" id="group-others">
         <div class="group-label">
           <span class="group-dot"></span>
@@ -259,9 +244,7 @@
     </main>
   </div>
 
-  <!-- ============================================================
-       MITM Overlay Window
-       ============================================================ -->
+  <!-- ============================= MITM OVERLAY ============================= -->
   <div class="mitm-overlay hidden" id="mitm-panel">
     <div class="mitm-overlay-backdrop"></div>
 
@@ -271,6 +254,7 @@
           <span class="dot" id="mitm-dot"></span>
           <span>MITM Lab Session</span>
           <span class="mitm-state-pill" id="mitm-state">stopped</span>
+          <span class="mitm-mode-pill" id="mitm-mode-pill">observe</span>
         </div>
         <button class="btn-icon" id="mitm-window-close" aria-label="Close window">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -296,15 +280,18 @@
         </div>
       </div>
 
-      <div class="mitm-tabs" role="tablist">
+      <div class="mitm-tabs" role="tablist" id="mitm-tabs">
         <button class="mitm-tab active" data-tab="control">Control</button>
         <button class="mitm-tab" data-tab="arp">ARP Truth</button>
         <button class="mitm-tab" data-tab="traffic">Traffic</button>
         <button class="mitm-tab" data-tab="raw">Raw Packets</button>
+        <button class="mitm-tab" data-tab="queue" data-mode="intercept">Queue</button>
+        <button class="mitm-tab" data-tab="rules" data-mode="intercept">Rules</button>
       </div>
 
       <div class="mitm-window-body">
-        <!-- Control -->
+
+        <!-- CONTROL -->
         <div class="mitm-tabpane" data-pane="control">
           <div class="control-hero">
             <div class="control-state-badge" id="ctrl-state-badge">stopped</div>
@@ -324,7 +311,7 @@
           </div>
         </div>
 
-        <!-- ARP Truth -->
+        <!-- ARP TRUTH -->
         <div class="mitm-tabpane hidden" data-pane="arp">
           <div class="arp-grid">
             <div class="arp-card arp-to-victim">
@@ -368,7 +355,7 @@
           </div>
         </div>
 
-        <!-- Traffic -->
+        <!-- TRAFFIC -->
         <div class="mitm-tabpane hidden" data-pane="traffic">
           <div class="traffic-head">
             <div class="traffic-title" id="traffic-title">Target is browsing…</div>
@@ -378,7 +365,7 @@
           <div class="traffic-empty" id="traffic-empty">Waiting for the target to make connections…</div>
         </div>
 
-        <!-- Raw -->
+        <!-- RAW PACKETS -->
         <div class="mitm-tabpane hidden" data-pane="raw">
           <div class="packet-filters">
             <button class="chip active" data-filter="ALL">All</button>
@@ -399,6 +386,90 @@
             <div class="packet-empty" id="packet-empty">Waiting for packets…</div>
           </div>
         </div>
+
+        <!-- QUEUE (intercept mode) -->
+        <div class="mitm-tabpane hidden" data-pane="queue">
+          <div class="intercept-toolbar">
+            <div class="intercept-toolbar-title">
+              Intercept Queue <span class="pill" id="queue-count">0</span>
+            </div>
+            <div class="intercept-toolbar-actions">
+              <button class="btn btn-ghost small" id="intercept-forward-all">Forward All</button>
+              <button class="btn btn-danger small" id="intercept-drop-all">Drop All</button>
+              <button class="btn btn-ghost small" id="intercept-clear">Clear History</button>
+            </div>
+          </div>
+
+          <div class="intercept-split">
+            <div class="intercept-list" id="intercept-list">
+              <div class="intercept-empty" id="intercept-empty">
+                Waiting for the target to open a connection…
+              </div>
+            </div>
+
+            <div class="intercept-detail" id="intercept-detail">
+              <div class="intercept-detail-empty" id="intercept-detail-empty">
+                Select a connection from the list to see details.
+              </div>
+              <div class="intercept-detail-body hidden" id="intercept-detail-body">
+                <div class="detail-row"><span class="k">Host</span><span class="v" id="itc-host">—</span></div>
+                <div class="detail-row"><span class="k">Port</span><span class="v" id="itc-port">—</span></div>
+                <div class="detail-row"><span class="k">Protocol</span><span class="v" id="itc-proto">—</span></div>
+                <div class="detail-row"><span class="k">Client</span><span class="v" id="itc-client">—</span></div>
+                <div class="detail-row"><span class="k">Status</span><span class="v" id="itc-status">—</span></div>
+                <div class="detail-row"><span class="k">Bytes</span><span class="v" id="itc-bytes">0</span></div>
+
+                <div class="detail-section-title">Request Preview</div>
+                <div class="detail-section" id="itc-preview">—</div>
+
+                <div class="intercept-actions">
+                  <button class="btn-action btn-drop" id="itc-drop">
+                    <span>Drop</span><span class="kbd">D</span>
+                  </button>
+                  <button class="btn-action btn-forward" id="itc-forward">
+                    <span>Forward</span><span class="kbd">F</span>
+                  </button>
+                  <button class="btn-action btn-forward-all" id="itc-forward-all">
+                    <span>Forward All</span><span class="kbd">A</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RULES (intercept mode) -->
+        <div class="mitm-tabpane hidden" data-pane="rules">
+          <div class="rules-toolbar">
+            <div class="rules-toolbar-title">Intercept Rules</div>
+            <div class="rules-add">
+              <select class="input select" id="rule-action">
+                <option value="allow">ALLOW</option>
+                <option value="deny">DENY</option>
+                <option value="pause">PAUSE</option>
+              </select>
+              <input class="input" id="rule-pattern" placeholder="e.g. *.youtube.com or *" />
+              <button class="btn btn-primary small" id="rule-add">Add Rule</button>
+            </div>
+          </div>
+
+          <div class="rules-list" id="rules-list"></div>
+
+          <div class="rules-default">
+            <span>Default action when no rule matches:</span>
+            <select class="input select" id="rules-default-action">
+              <option value="pause">PAUSE</option>
+              <option value="allow">ALLOW</option>
+              <option value="deny">DENY</option>
+            </select>
+          </div>
+
+          <div class="rules-note">
+            Rules are evaluated top-to-bottom. First match wins.
+            Patterns: <code>youtube.com</code> (exact), <code>*.youtube.com</code> (wildcard), <code>*</code> (catch-all).
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -429,16 +500,13 @@
     </div>
   </div>
 
-  <!-- ============================================================
-       MITM confirmation modal
-       ============================================================ -->
+  <!-- MITM confirmation modal -->
   <div class="modal hidden" id="mitm-confirm">
     <div class="modal-backdrop" data-close></div>
     <div class="modal-card mitm-confirm-card">
       <div class="modal-head">
         <div class="modal-icon mitm-confirm-icon">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"
-            stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
           </svg>
         </div>
@@ -454,11 +522,25 @@
         </button>
       </div>
       <div class="modal-body">
+        <div class="mode-picker" id="mode-picker">
+          <div class="mode-picker-label">Select mode for this session</div>
+          <div class="mode-picker-cards">
+            <button class="mode-card active" type="button" data-mode="observe">
+              <div class="mode-card-title">Observe</div>
+              <div class="mode-card-sub">Capture and inspect only. Nothing is blocked.</div>
+            </button>
+            <button class="mode-card" type="button" data-mode="intercept">
+              <div class="mode-card-title">Intercept</div>
+              <div class="mode-card-sub">Decide per connection: forward or drop.</div>
+            </button>
+          </div>
+        </div>
+
         <div class="mitm-confirm-warn">
-          <p>This performs an <b>ARP-based MITM</b> against the selected device and enables IP forwarding so its traffic
-            is relayed, not dropped. Every action is reversible on <b>Stop</b>.</p>
+          <p>This performs an <b>ARP-based MITM</b> against the selected device. Every action is reversible on <b>Stop</b>.</p>
           <p class="muted">Only proceed if the target is a device you own or control in your authorized lab.</p>
         </div>
+
         <div class="detail-grid mitm-target-preview">
           <div class="detail-k">Target</div>
           <div class="detail-v" id="mitm-confirm-target">—</div>
@@ -469,11 +551,11 @@
           <div class="detail-k">Your MAC</div>
           <div class="detail-v" id="mitm-confirm-amac">—</div>
         </div>
+
         <div class="modal-actions mitm-confirm-actions">
           <button type="button" class="btn btn-ghost" data-close>Cancel</button>
           <button type="button" class="btn btn-danger big" id="mitm-confirm-go">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"
-              stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
             </svg>
             Start MITM Session
@@ -483,7 +565,6 @@
     </div>
   </div>
 
-  <!-- Toast -->
   <div class="toast hidden" id="toast"></div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>

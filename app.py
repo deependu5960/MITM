@@ -99,23 +99,25 @@ def mitm_status():
     return jsonify({"success": True, **get_manager().get_status()})
 
 
+
+
 @app.route("/api/mitm/start", methods=["POST"])
 def mitm_start():
     body = request.get_json(silent=True) or {}
     victim_ip = (body.get("ip") or "").strip()
     iface = body.get("iface") or None
     confirm = body.get("confirm") is True
+    mode = (body.get("mode") or "observe").lower()
 
     if not victim_ip:
         return jsonify({"success": False, "error": "Missing victim IP"}), 400
 
     if CONFIG.REQUIRE_CONFIRMATION and not confirm:
-        return jsonify({
-            "success": False,
-            "error": "Confirmation required",
-        }), 400
+        return jsonify({"success": False, "error": "Confirmation required"}), 400
 
-    # Lab boundary check
+    if mode not in ("observe", "intercept"):
+        return jsonify({"success": False, "error": f"Invalid mode: {mode}"}), 400
+
     if CONFIG.LAB_SUBNETS:
         import ipaddress
         ok = False
@@ -127,23 +129,74 @@ def mitm_start():
             except ValueError:
                 continue
         if not ok:
-            return jsonify({
-                "success": False,
-                "error": f"Target {victim_ip} is outside the configured lab subnets",
-            }), 403
+            return jsonify({"success": False,
+                            "error": f"Target {victim_ip} is outside the configured lab subnets"}), 403
 
-    # Scanner must know the device
     device = discovery.find_device(victim_ip)
     if not device:
-        return jsonify({
-            "success": False,
-            "error": f"Device {victim_ip} not found in the last scan. Scan first.",
-        }), 404
+        return jsonify({"success": False,
+                        "error": f"Device {victim_ip} not found in the last scan. Scan first."}), 404
 
-    result = get_manager().start(victim_ip, iface=iface)
+    result = get_manager().start(victim_ip, iface=iface, mode=mode)
     if not result.get("ok"):
         return jsonify({"success": False, "error": result.get("error", "Unknown error")}), 500
-    return jsonify({"success": True, "session": result["session"]})
+    return jsonify({"success": True, "session": result["session"], "mode": result.get("mode", mode)})
+
+
+# ---------------- Intercept endpoints ----------------
+
+@app.route("/api/mitm/intercepts")
+def mitm_intercepts():
+    return jsonify({"success": True,
+                    "intercepts": get_manager().get_intercepts()})
+
+@app.route("/api/mitm/intercept/<int:iid>/forward", methods=["POST"])
+def mitm_intercept_forward(iid):
+    return jsonify({"success": True, **get_manager().intercept_decide(iid, "forward")})
+
+@app.route("/api/mitm/intercept/<int:iid>/drop", methods=["POST"])
+def mitm_intercept_drop(iid):
+    return jsonify({"success": True, **get_manager().intercept_decide(iid, "drop")})
+
+@app.route("/api/mitm/intercept/forward-all", methods=["POST"])
+def mitm_intercept_forward_all():
+    return jsonify({"success": True, **get_manager().intercept_forward_all()})
+
+@app.route("/api/mitm/intercept/drop-all", methods=["POST"])
+def mitm_intercept_drop_all():
+    return jsonify({"success": True, **get_manager().intercept_drop_all()})
+
+@app.route("/api/mitm/intercept/clear", methods=["POST"])
+def mitm_intercept_clear():
+    return jsonify({"success": True, **get_manager().intercept_clear()})
+
+# ---------------- Rules endpoints ----------------
+
+@app.route("/api/mitm/rules")
+def mitm_rules_list():
+    return jsonify({"success": True, **get_manager().get_rules()})
+
+@app.route("/api/mitm/rules", methods=["POST"])
+def mitm_rules_add():
+    body = request.get_json(silent=True) or {}
+    action = (body.get("action") or "").strip()
+    pattern = (body.get("pattern") or "").strip()
+    return jsonify({"success": True, **get_manager().rules_add(action, pattern)})
+
+@app.route("/api/mitm/rules/<int:index>", methods=["DELETE"])
+def mitm_rules_remove(index):
+    return jsonify({"success": True, **get_manager().rules_remove(index)})
+
+@app.route("/api/mitm/rules/<int:index>/toggle", methods=["POST"])
+def mitm_rules_toggle(index):
+    return jsonify({"success": True, **get_manager().rules_toggle(index)})
+
+@app.route("/api/mitm/rules/default", methods=["POST"])
+def mitm_rules_set_default():
+    body = request.get_json(silent=True) or {}
+    action = (body.get("action") or "pause").strip()
+    return jsonify({"success": True, **get_manager().rules_set_default(action)})
+
 
 
 @app.route("/api/mitm/stop", methods=["POST"])

@@ -93,6 +93,15 @@ class PacketStream:
                 yield f"event: {event}\ndata: {body}\n\n"
         finally:
             self.unsubscribe(q)
+    
+    # ---------------------------
+    def publish_intercept(self, payload: dict) -> None:
+        with self._lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            self._push(q, "intercept", payload)
+    
+    
 
 
 STREAM = PacketStream()
