@@ -148,10 +148,10 @@
   function isPrivateIp(ip) {
     if (!ip) return false;
     return ip.startsWith("10.") || ip.startsWith("192.168.")
-        || ip.startsWith("172.16.") || ip.startsWith("172.17.")
-        || ip.startsWith("172.18.") || ip.startsWith("172.19.")
-        || ip.startsWith("172.2") || ip.startsWith("172.30.")
-        || ip.startsWith("172.31.") || ip.startsWith("127.");
+      || ip.startsWith("172.16.") || ip.startsWith("172.17.")
+      || ip.startsWith("172.18.") || ip.startsWith("172.19.")
+      || ip.startsWith("172.2") || ip.startsWith("172.30.")
+      || ip.startsWith("172.31.") || ip.startsWith("127.");
   }
 
   // ==========================================================================
@@ -448,7 +448,7 @@
     }
   }
 
-    async function stopMitm() {
+  async function stopMitm() {
     try {
       const r = await fetch("/api/mitm/stop", { method: "POST" });
       const data = await r.json();
@@ -518,9 +518,9 @@
     const dot = $("#mitm-dot");
     if (dot) {
       dot.className = "dot " + (sv === "running" ? "online"
-                              : sv === "error" ? "error"
-                              : (sv === "starting" || sv === "stopping") ? "scanning"
-                              : "");
+        : sv === "error" ? "error"
+          : (sv === "starting" || sv === "stopping") ? "scanning"
+            : "");
     }
     const st = $("#mitm-state"); if (st) st.textContent = sv;
 
@@ -587,22 +587,22 @@
     try {
       mitm.es = new EventSource("/api/mitm/stream");
       mitm.es.addEventListener("packet", (ev) => {
-        try { appendPacket(JSON.parse(ev.data)); } catch (_) {}
+        try { appendPacket(JSON.parse(ev.data)); } catch (_) { }
       });
       mitm.es.addEventListener("flow", (ev) => {
-        try { appendFlow(JSON.parse(ev.data)); } catch (_) {}
+        try { appendFlow(JSON.parse(ev.data)); } catch (_) { }
       });
       mitm.es.addEventListener("arp", (ev) => {
-        try { applyArpStats(JSON.parse(ev.data)); } catch (_) {}
+        try { applyArpStats(JSON.parse(ev.data)); } catch (_) { }
       });
-      mitm.es.onerror = () => {};
+      mitm.es.onerror = () => { };
     } catch (e) {
       toast("SSE unsupported: " + e.message, "err");
     }
   }
 
   function disconnectMitmStream() {
-    if (mitm.es) { try { mitm.es.close(); } catch (_) {} mitm.es = null; }
+    if (mitm.es) { try { mitm.es.close(); } catch (_) { } mitm.es = null; }
   }
 
   // ==========================================================================
@@ -765,12 +765,30 @@
   // MITM — panel wiring (buttons, chips, tabs, drawer)
   // ==========================================================================
   function wireMitmPanel() {
+    // Close button on the overlay
+    const closeWin = $("#mitm-window-close");
+    if (closeWin) closeWin.addEventListener("click", () => {
+      const w = $("#mitm-panel");
+      if (w) w.classList.add("hidden");
+      disconnectMitmStream();
+    });
+
+    // Backdrop click also closes
+    const backdrop = document.querySelector(".mitm-overlay-backdrop");
+    if (backdrop) backdrop.addEventListener("click", () => {
+      const w = $("#mitm-panel");
+      if (w) w.classList.add("hidden");
+      disconnectMitmStream();
+    });
+
+    // Stop MITM
     const stopBtn = $("#mitm-stop");
     if (stopBtn) stopBtn.addEventListener("click", stopMitm);
 
+    // Clear
     const clearBtn = $("#mitm-clear");
     if (clearBtn) clearBtn.addEventListener("click", async () => {
-      try { await fetch("/api/mitm/clear", { method: "POST" }); } catch (_) {}
+      try { await fetch("/api/mitm/clear", { method: "POST" }); } catch (_) { }
       const tb = $("#packet-tbody"); if (tb) tb.innerHTML = "";
       mitm.count = 0;
       updateCounters();
@@ -780,14 +798,16 @@
       renderTrafficList();
     });
 
+    // Pause / resume
     const pauseBtn = $("#mitm-pause");
     if (pauseBtn) pauseBtn.addEventListener("click", async () => {
       const path = mitm.paused ? "/api/mitm/resume" : "/api/mitm/pause";
-      try { await fetch(path, { method: "POST" }); } catch (_) {}
+      try { await fetch(path, { method: "POST" }); } catch (_) { }
       mitm.paused = !mitm.paused;
       pauseBtn.textContent = mitm.paused ? "Resume" : "Pause";
     });
 
+    // Protocol filter chips
     document.querySelectorAll(".packet-filters .chip").forEach((chip) => {
       chip.addEventListener("click", () => {
         document.querySelectorAll(".packet-filters .chip").forEach((c) => c.classList.remove("active"));
@@ -796,10 +816,12 @@
       });
     });
 
+    // Tab switching
     document.querySelectorAll(".mitm-tab").forEach((t) => {
       t.addEventListener("click", () => setMitmTab(t.dataset.tab));
     });
 
+    // Confirm modal — close and go
     const cModal = $("#mitm-confirm");
     if (cModal) {
       cModal.querySelectorAll("[data-close]").forEach((el) => {
@@ -815,6 +837,7 @@
       });
     }
 
+    // Flow drawer close
     document.querySelectorAll("[data-flow-close]").forEach((el) => {
       el.addEventListener("click", closeFlowDrawer);
     });
@@ -838,7 +861,7 @@
         // The user closes it manually via the ✕ button.
         disconnectMitmStream();
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // ==========================================================================
@@ -850,7 +873,7 @@
       const d = await r.json();
       state.iface = d.interface;
       state.localName = d.local_name;
-    } catch (_) {}
+    } catch (_) { }
   }
 
   async function fetchDevices() {
@@ -886,7 +909,7 @@
   async function startScan(fromLanding) {
     if (state.scanning) return;
     if (fromLanding) showApp();
-    try { await fetch("/api/scan", { method: "POST" }); } catch (_) {}
+    try { await fetch("/api/scan", { method: "POST" }); } catch (_) { }
     state.scanning = true;
     renderProgress();
     renderTopbar();
